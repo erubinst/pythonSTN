@@ -1,0 +1,22 @@
+{
+  "tasks": [
+    {
+      "task_name": "Lawnmowing",
+      "release_time": 0,
+      "due_time": 5,
+      "duration": 2
+    },
+    {
+      "task_name": "Cooking",
+      "release_time": 3,
+      "due_time": 8,
+      "duration": 3
+    },
+    {
+      "task_name": "Cleaning",
+      "release_time": 6,
+      "due_time": 12,
+      "duration": 5
+    }
+  ]
+}
