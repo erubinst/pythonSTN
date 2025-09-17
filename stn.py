@@ -1,6 +1,5 @@
 import numpy as np
 import networkx as nx
-from timepoint import Timepoint
 from queue import deque
 
 
@@ -15,6 +14,8 @@ class STN(nx.DiGraph):
             stn_str += f"Timepoint: {tp}\n"
             stn_str += f"  LB: {self.nodes[tp]['data']['lb']}\n"
             stn_str += f"  UB: {self.nodes[tp]['data']['ub']}\n"
+            stn_str += f"  LB Constricting Edge: {self.nodes[tp]['data'].get('pl', None)}\n"
+            stn_str += f"  UB Constricting Edge: {self.nodes[tp]['data'].get('pu', None)}\n"
         return stn_str
 
     def add_cz_tp(self):

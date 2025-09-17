@@ -23,5 +23,6 @@ def add_task(stn, task_name, duration=0, start=0, end=np.inf):
 stn = STN()
 for task in data["tasks"]:
     add_task(stn, task['task_name'], task['duration'], task['release_time'], task['due_time'])
+stn.add_constraint("Lawnmowing_end", "Cooking_start", 1) 
 
 print(stn)
