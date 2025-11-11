@@ -1,8 +1,8 @@
-from stn import STN
+from stn.stn import STN
 import json
 import numpy as np
 
-file_path = "examples/test.json"
+file_path = "/Users/esmerubinstein/Desktop/ICLL/pythonSTN/stn/simple_test/test.json"
 #load json
 with open(file_path, "r") as f:
     data = json.load(f)
@@ -23,7 +23,7 @@ stn = STN()
 for task in data["tasks"]:
     add_task(stn, task['task_name'], task['duration'], task['release_time'], task['due_time'])
 print(stn)
-stn.add_constraint("Lawnmowing_end", "Cooking_start", 12) 
+stn.add_constraint("Lawnmowing_end", "Cooking_start", 0) 
 print(stn)
 
 

@@ -31,7 +31,7 @@ class STN(nx.DiGraph):
         self.add_edge(tp1, tp2, weight=ub, data={'new_p': True})
         self.add_edge(tp2, tp1, weight=-lb, data={'new_p': True})
         # propagate constraints
-        self.propagate(tp1, tp2)
+        return self.propagate(tp1, tp2)
 
     def delete_constraint(self, tp1, tp2, consistent):
         if consistent:
