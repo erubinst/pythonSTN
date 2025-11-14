@@ -1,0 +1,416 @@
+{
+    "resourceTypes": [
+        {
+            "name": "Annie",
+            "type": "resusable",
+            "capabilities": [
+                "annie_presence",
+                "annie_shopping",
+                "cook",
+                "sewing",
+                "traveler"
+            ]
+        },
+        {
+            "name": "Debbie",
+            "type": "resusable",
+            "capabilities": [
+                "debbie_presence",
+                "annie_prescription",
+                "debbie_prescription",
+                "tom_prescription",
+                "jane_prescription",
+                "handywork",
+                "volunteer",
+                "traveler"
+            ]
+        },
+        {
+            "name": "AnnieBrother",
+            "type": "resusable",
+            "capabilities": [
+                "annie_brother_presence",
+                "traveler",
+                "transport"
+            ]
+        },
+        {
+            "name": "AnnieSon",
+            "type": "resusable",
+            "capabilities": [
+                "annie_son_presence",
+                "annie_prescription",
+                "debbie_prescription",
+                "tom_prescription",
+                "jane_prescription",
+                "traveler",
+                "handywork",
+                "transport"
+            ]
+        },
+        {
+            "name": "Jane",
+            "type": "resusable",
+            "capabilities": [
+                "jane_presence",
+                "traveler"
+            ]
+        },
+        {
+            "name": "Tom",
+            "type": "resusable",
+            "capabilities": [
+                "tom_presence",
+                "tom_shopping",
+                "annie_prescription",
+                "debbie_prescription",
+                "tom_prescription",
+                "jane_prescription",
+                "traveler",
+                "transport"
+            ]
+        }
+    ],
+    "templates": [
+        {
+            "name": "ALunch",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "a_lunch",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "annie_presence"
+                    ],
+                    "duration": 60,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "DLunch",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "d_lunch",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "debbie_presence"
+                    ],
+                    "duration": 60,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "PrepareCakeIngredients",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "prepare_cake_ingredients",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "annie_shopping"
+                    ],
+                    "duration": 120,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "DentalAppointment",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "dental_appointment",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "annie_presence"
+                    ],
+                    "duration": 30,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "TPrescriptionPickup",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "tom_prescription_pickup",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "tom_prescription"
+                    ],
+                    "duration": 5,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "APrescriptionPickup",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "annie_prescription_pickup",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "annie_prescription"
+                    ],
+                    "duration": 5,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "DPrescriptionPickup",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "debbie_prescription_pickup",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "debbie_prescription"
+                    ],
+                    "duration": 5,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+                {
+            "name": "JPrescriptionPickup",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "jane_prescription_pickup",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "jane_prescription"
+                    ],
+                    "duration": 5,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "PCPACheckup",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "pcpa_checkup",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "debbie_presence"
+                    ],
+                    "duration": 60,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "Volunteer",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "volunteer",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "volunteer"
+                    ],
+                    "duration": 60,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "Walmart",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "walmart_shopping",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "jane_presence",
+                        "annie_presence"
+                    ],
+                    "duration": 45,
+                    "start-location": "GroceryStore2",
+                    "end-location": "GroceryStore2",
+                    "explicit_transport_task": false
+                }
+            ]
+        }
+    ],
+    "orders": [
+        {
+            "name": "ALunch_T",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T12:00",
+            "duedate": "2025-05-20T13:00",
+            "start-location": "SeniorCenter",
+            "end-location": "SeniorCenter",
+            "tasks": [
+                "ALunch"
+            ],
+            "optional": false
+        },
+        {
+            "name": "DLunch_T",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T12:00",
+            "duedate": "2025-05-20T13:00",
+            "start-location": "SeniorCenter",
+            "end-location": "SeniorCenter",
+            "tasks": [
+                "DLunch"
+            ],
+            "optional": false
+        },
+        {
+            "name": "PrepareCakeIngredients",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T08:00",
+            "duedate": "2025-05-25T23:00",
+            "start-location": "AnnieHouse",
+            "end-location": "AnnieHouse",
+            "tasks": [
+                "PrepareCakeIngredients"
+            ],
+            "optional": false
+        },
+        {
+            "name": "DentalAppointment",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T15:00",
+            "duedate": "2025-05-20T16:00",
+            "start-location": "DentistOffice",
+            "end-location": "DentistOffice",
+            "tasks": [
+                "DentalAppointment"
+            ],
+            "optional": false
+        },
+        {
+            "name": "TPrescriptionPickup",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T08:00",
+            "duedate": "2025-05-20T23:00",
+            "start-location": "Pharmacy",
+            "end-location": "Pharmacy",
+            "tasks": [
+                "TPrescriptionPickup"
+            ],
+            "optional": false
+        },
+        {
+            "name": "APrescriptionPickup",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T08:00",
+            "duedate": "2025-05-20T17:00",
+            "start-location": "Pharmacy",
+            "end-location": "Pharmacy",
+            "tasks": [
+                "APrescriptionPickup"
+            ],
+            "optional": false
+        },
+        {
+            "name": "DPrescriptionPickup",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T08:00",
+            "duedate": "2025-05-20T17:00",
+            "start-location": "Pharmacy",
+            "end-location": "Pharmacy",
+            "tasks": [
+                "DPrescriptionPickup"
+            ],
+            "optional": false
+        },
+        {
+            "name": "JPrescriptionPickup",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T08:00",
+            "duedate": "2025-05-20T17:00",
+            "start-location": "Pharmacy",
+            "end-location": "Pharmacy",
+            "tasks": [
+                "JPrescriptionPickup"
+            ],
+            "optional": false
+        },
+        {
+            "name": "PCPACheckup",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T09:00",
+            "duedate": "2025-05-20T10:00",
+            "start-location": "DoctorOffice",
+            "end-location": "DoctorOffice",
+            "tasks": [
+                "PCPACheckup"
+            ],
+            "optional": false
+        },
+        {
+            "name": "Volunteer_T",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T11:00",
+            "duedate": "2025-05-20T12:00",
+            "start-location": "SeniorCenter",
+            "end-location": "SeniorCenter",
+            "tasks": [
+                "Volunteer"
+            ],
+            "optional": false
+        },
+        {
+            "name": "Walmart",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T11:00",
+            "duedate": "2025-05-20T15:00",
+            "start-location": "DebbieHouse",
+            "end-location": "DebbieHouse",
+            "tasks": [
+                "Walmart"
+            ],
+            "optional": false
+        }
+    ],
+    "order-constraints": [
+        {
+            "relation": "BEFORE",
+            "source": "PrepareCakeIngredients",
+            "destination": "PrepareFood"
+        }
+    ]
+}

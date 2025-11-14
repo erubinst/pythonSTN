@@ -1,93 +1,41 @@
+import numpy as np
 from timepoint import Timepoint
 
 class Task:
-    """
-    Represents a task in the TDS that may require multiple capabilities,
-    each fulfilled by a separate resource. The task is represented as
-    a start and end timepoint in the shared STN.
-    """
-
-    def __init__(self, name, capabilities, tds_manager, assignments=None, duration=None):
+    def __init__(self, name, capabilities, tds_manager, assigned_resources=None):
         """
-        Initialize a Task object.
-
-        Parameters
-        ----------
-        name : str
-            Task identifier.
-        capabilities : list[str]
-            List of required capabilities.
-        tds_manager : TDSManager
-            Reference to shared STN and resource manager.
-        assignments : dict[str, Resource], optional
-            Predefined mapping of capability → assigned Resource.
-        duration : float, optional
-            Fixed duration (if applicable).
+        Create a Task and its start/end timepoints *via the manager*.
+        assigned_resources: dict capability -> Resource (may be empty)
         """
         self.name = name
-        self.capabilities = capabilities
+        self.capabilities = list(capabilities)
         self.tds = tds_manager
-        self.duration = duration
+        self.assigned_resources = {} if assigned_resources is None else dict(assigned_resources)
 
-        # Assignments is a dict: {capability: Resource}
-        self.assigned_resources = assignments or {}
+        # create timepoints through the manager so they are registered there
+        self.start = Timepoint(f'{name}_start', self.tds)
+        self.end = Timepoint(f"{name}_end", self.tds)
 
-        # Create timepoints in STN
-        self.start = Timepoint(f"{name}_start", tds_manager.stn)
-        self.end = Timepoint(f"{name}_end", tds_manager.stn)
+        # register this task object with the manager under its name
+        self.tds.add_task_to_manager(self)
 
-        # Apply fixed duration if provided
-        if duration is not None:
-            self.start.constrain_before(self.end, min_gap=duration, max_gap=duration)
+    def add_time_window_constraints(self, start_time, end_time):
+        self.tds.cz.add_constraint(self.start, start_time)
+        self.tds.cz.add_constraint(self.end, 0, end_time)
 
-        # Add to assigned resources' timelines
-        for cap, res in self.assigned_resources.items():
-            res.add_task(self)
+    def add_duration_constraint(self, duration):
+        self.start.add_constraint(self.end, duration, duration)
 
-    # -------------------------------
-    # Resource assignment management
-    # -------------------------------
+    def constrain_before(self, other_task, min_gap=0, max_gap=np.inf):
+        self.end.add_constraint(other_task.start, min_gap=min_gap, max_gap=max_gap)
+
+    def constrain_after(self, other_task, min_gap=0, max_gap=np.inf):
+        other_task.end.add_constraint(self.start, min_gap=min_gap, max_gap=max_gap)
 
     def assign_resource(self, capability, resource):
-        """
-        Assign a resource to one of this task's required capabilities.
-        """
         if capability not in self.capabilities:
-            raise ValueError(f"{capability} not in required capabilities {self.capabilities}")
-        self.assigned_resources[capability] = resource
-        resource.add_task(self)
-
-    def all_resources_assigned(self):
-        """Check if every required capability has an assigned resource."""
-        return all(cap in self.assigned_resources for cap in self.capabilities)
-
-    # -------------------------------
-    # Temporal constraints
-    # -------------------------------
-
-    def add_duration_constraint(self, min_dur, max_dur=None):
-        self.start.constrain_before(self.end, min_gap=min_dur, max_gap=max_dur)
-        self.duration = (min_dur if max_dur is None else (min_dur, max_dur))
-
-    def add_custom_constraint(self, other_task, relation, gap):
-        """Add a temporal constraint relative to another task."""
-        if relation == "start_after":
-            other_task.end.constrain_before(self.start, min_gap=gap)
-        elif relation == "end_after":
-            other_task.end.constrain_before(self.end, min_gap=gap)
-        elif relation == "start_before":
-            self.start.constrain_before(other_task.start, min_gap=gap)
-        elif relation == "end_before":
-            self.end.constrain_before(other_task.end, min_gap=gap)
-        else:
-            raise ValueError(f"Invalid relation: {relation}")
-
-    # -------------------------------
-    # Debug / representation
-    # -------------------------------
+            raise ValueError(f"{capability} not required by task {self.name}")
+        self.assigned_resources[capability] = resource.name
 
     def __repr__(self):
-        caps = ", ".join(self.capabilities)
-        assigned = {cap: res.name for cap, res in self.assigned_resources.items()}
-        return (f"<Task {self.name}: [{caps}], "
-                f"assigned={assigned}, duration={self.duration}>")
+        return f"<Task {self.name} caps={self.capabilities} assigned={list(self.assigned_resources.keys())}>"
