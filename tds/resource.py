@@ -1,4 +1,5 @@
 from timeline import Timeline
+from config import *
 
 class Resource:
     def __init__(self, name, capabilities, tds_manager):
@@ -8,12 +9,13 @@ class Resource:
         self.timeline = Timeline(self, tds_manager)
 
         self.tds.add_resource_to_manager(self)
+        self.timeline.create_header_footer(GLOBAL_START, GLOBAL_END)
 
-    def append_task_to_timeline(self, task, capability):
+    def insert_task_to_timeline(self, task, capability, prev_task=None):
         # Ensure task is appended via timeline (this will add STN ordering)
         if capability not in self.capabilities:
             raise ValueError(f"Resource '{self.name}' does not have capability '{capability}'")
-        self.timeline.append_task(task)
+        self.timeline.insert_task(task, prev_task)
         task.assign_resource(capability, self)
 
     def has_capability(self, capability):

@@ -1,7 +1,7 @@
 import numpy as np
 
 class Timepoint:
-    def __init__(self, name, tds_manager, earliest=None, latest=None, add_to_stn=True):
+    def __init__(self, name, tds_manager, add_to_stn=True):
         """
         Creates a timepoint node in the STN via the STN API and keeps a wrapper.
         """

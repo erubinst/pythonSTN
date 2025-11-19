@@ -6,11 +6,12 @@ class Task:
                  name, 
                  capabilities, 
                  tds_manager, 
-                 order, 
-                 template, 
+                 order=None, 
+                 template=None, 
+                 locations=[],
                  assigned_resources=None):
         """
-        Create a Task and its start/end timepoints *via the manager*.
+        Create a Task and its start/end timepoints.
         assigned_resources: dict capability -> Resource (may be empty)
         """
         self.name = name
@@ -18,6 +19,7 @@ class Task:
         self.tds = tds_manager
         self.order = order
         self.template = template
+        self.locations = locations # start and end locations in a list
         self.assigned_resources = {} if assigned_resources is None else dict(assigned_resources)
 
         # create timepoints through the manager so they are registered there

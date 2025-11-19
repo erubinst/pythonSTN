@@ -1,30 +1,42 @@
 import numpy as np
 import pandas as pd
+from task import Task
 
 class Timeline:
     def __init__(self, resource, tds_manager):
         self.resource = resource
         self.tds = tds_manager
         self.tasks = []
+    
+    def create_header_footer(self, global_start=0, global_end=np.inf):
+        """Create header and footer tasks for the timeline."""
+        header_task = Task(
+            name=f"{self.resource.name}_header",
+            capabilities=[],
+            tds_manager=self.tds,
+        )
+        header_task.add_time_window_constraints(global_start, global_start+1)
+        header_task.add_duration_constraint(1)
+        self.tasks.append(header_task)
+        footer_task = Task(
+            name=f"{self.resource.name}_footer",
+            capabilities=[],
+            tds_manager=self.tds,
+        )
+        footer_task.add_time_window_constraints(global_end, global_end+1)
+        footer_task.add_duration_constraint(1)
+        self.insert_task(footer_task, prev_task=header_task)
 
-    def append_task(self, task, min_gap=0, max_gap=np.inf):
-        """Append a task at the end and post end->start constraint from previous task if present."""
-        if self.tasks:
-            prev = self.tasks[-1]
-            # prev.end -> task.start constraint
-            task.constrain_after(prev, min_gap=min_gap, max_gap=max_gap)
+    def insert_task(self, task, prev_task=None):
+        if prev_task is None:
+            #TODO search for slot
+            pass
+        else:
+            prev_task_idx = self.tasks.index(prev_task)
+            self.tasks.insert(prev_task_idx + 1, task)
+            task.constrain_after(prev_task)
         self.tasks.append(task)
 
-    def insert_task_after(self, previous_task, new_task, min_gap=0, max_gap=np.inf):
-        idx = self.tasks.index(previous_task)
-        # insert into list
-        self.tasks.insert(idx+1, new_task)
-        # link prev -> new
-        new_task.constrain_after(previous_task,min_gap=min_gap, max_gap=max_gap)
-        # if there is a next task, re-link new -> next (we add minimal 0 gap)
-        if idx+2 < len(self.tasks):
-            next_task = self.tasks[idx+2]
-            new_task.constrain_before(next_task, min_gap=0)
 
     def export_to_df(self):
         """
@@ -36,7 +48,7 @@ class Timeline:
 
         for task in self.tasks:
             # Find which capability is assigned to this timeline's resource
-            cap_for_resource = None
+            cap_for_resource = "N/A"
             for cap, res in task.assigned_resources.items():
                 if res == self.resource.name:
                     cap_for_resource = cap

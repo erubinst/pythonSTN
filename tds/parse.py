@@ -12,7 +12,6 @@ def load_request_data(request_path):
     templates = {t["name"]: t for t in request_data.get("templates", [])}
     orders = {o["name"]: o for o in request_data.get("orders", [])}
     resources = {r["name"]: r for r in request_data.get("resourceTypes", [])}
-    print(request_data.get("order-constraints", []))
     # load in order constraints
     return {
         "templates": templates,
