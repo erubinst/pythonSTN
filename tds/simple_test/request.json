@@ -409,8 +409,8 @@
     "order-constraints": [
         {
             "relation": "BEFORE",
-            "source": "PrepareCakeIngredients",
-            "destination": "PrepareFood"
+            "source": "APrescriptionPickup",
+            "destination": "DentalAppointment"
         }
     ]
 }

@@ -2,7 +2,13 @@ import numpy as np
 from timepoint import Timepoint
 
 class Task:
-    def __init__(self, name, capabilities, tds_manager, assigned_resources=None):
+    def __init__(self, 
+                 name, 
+                 capabilities, 
+                 tds_manager, 
+                 order, 
+                 template, 
+                 assigned_resources=None):
         """
         Create a Task and its start/end timepoints *via the manager*.
         assigned_resources: dict capability -> Resource (may be empty)
@@ -10,6 +16,8 @@ class Task:
         self.name = name
         self.capabilities = list(capabilities)
         self.tds = tds_manager
+        self.order = order
+        self.template = template
         self.assigned_resources = {} if assigned_resources is None else dict(assigned_resources)
 
         # create timepoints through the manager so they are registered there
@@ -26,6 +34,7 @@ class Task:
     def add_duration_constraint(self, duration):
         self.start.add_constraint(self.end, duration, duration)
 
+    # dont use
     def constrain_before(self, other_task, min_gap=0, max_gap=np.inf):
         self.end.add_constraint(other_task.start, min_gap=min_gap, max_gap=max_gap)
 

@@ -1,4 +1,3 @@
-import numpy as np
 from timeline import Timeline
 
 class Resource:
@@ -12,6 +11,8 @@ class Resource:
 
     def append_task_to_timeline(self, task, capability):
         # Ensure task is appended via timeline (this will add STN ordering)
+        if capability not in self.capabilities:
+            raise ValueError(f"Resource '{self.name}' does not have capability '{capability}'")
         self.timeline.append_task(task)
         task.assign_resource(capability, self)
 
