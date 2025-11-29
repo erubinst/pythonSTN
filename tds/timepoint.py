@@ -12,12 +12,19 @@ class Timepoint:
             self.tds.stn.add_timepoint(name)
         # optional bounds relative to zero
 
-    def add_constraint(self, other, min_gap=0, max_gap=np.inf):
+    def add_constraint(self, other, min_gap=0, max_gap=np.inf, constraint_type="sequence"):
         """
         Add: min_gap <= other - self <= max_gap
         Uses STN.add_constraint(self.name, other.name, lb, ub)
         """
-        return self.tds.stn.add_constraint(self.name, other.name, lb=min_gap, ub=max_gap)
+        return self.tds.stn.add_constraint(self.name, other.name, lb=min_gap, ub=max_gap, constraint_type=constraint_type)
+    
+    def delete_constraint(self, other, constraint_type):
+        """
+        Delete constraint between self and other timepoint.
+        Uses STN.delete_constraint(self.name, other.name)
+        """
+        self.tds.stn.delete_constraint(self.name, other.name, constraint_type)
     
     @property
     def lb(self):

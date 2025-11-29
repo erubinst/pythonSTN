@@ -21,6 +21,16 @@ def display_current_schedule(tds, epoch_date_str):
     df["end_lb_time"]   = df["end_lb"].dt.strftime("%H:%M")
     df["start_ub_time"] = df["start_ub"].dt.strftime("%H:%M")
     df["end_ub_time"]   = df["end_ub"].dt.strftime("%H:%M")
+    # if task name contains 'travel', set to different color
+    df['type'] = 'task'
+    df.loc[df['task_name'].str.contains('travel'), 'type'] = 'travel'
+    df["type"] = df["type"].astype(str)
+    # set color based on type
+    color_discrete_map={
+        "task": "#00008B",
+        "travel": "#FFFF00"
+    }
+
 
     df['resource'] = df['resource'].astype(str)
     df = df.sort_values('resource')
@@ -30,6 +40,7 @@ def display_current_schedule(tds, epoch_date_str):
         x_end="end_lb",
         y="resource",
         text = "task_name",
+        color="type",
         hover_data={
             "start_lb": False,
             "end_lb": False,
@@ -39,7 +50,8 @@ def display_current_schedule(tds, epoch_date_str):
             "end_lb_time": True,
             "end_ub_time": True,
             "capability": True,
-        }
+        },
+        color_discrete_map=color_discrete_map
     )
     fig.update_layout(
         title="Current Schedule",

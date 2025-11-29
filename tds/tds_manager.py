@@ -3,11 +3,12 @@ from timepoint import Timepoint
 import pandas as pd
 
 class TDSManager:
-    def __init__(self):
+    def __init__(self, travel_matrix=None):
         self.stn = STN()
         self.resources = {}     # name -> Resource
         self.tasks = {}         # name or order -> Task
         self.cz = Timepoint('zero', self, add_to_stn=False)
+        self.travel_matrix = travel_matrix
 
     def add_task_to_manager(self, task):
         """Register a task with the manager."""

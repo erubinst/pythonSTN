@@ -51,7 +51,8 @@ def load_resources_df(resources_dict):
     for name, r in resources_dict.items():
         rows.append({
             "resource_name": name,
-            "capabilities": ", ".join(r.get("capabilities", []))
+            "capabilities": ", ".join(r.get("capabilities", [])),
+            'location': r['location']
         })
     return pd.DataFrame(rows)
 
@@ -70,17 +71,26 @@ def load_tasks_df(templates_dict, orders_dict, cz_datetime):
             "required_capabilities": ", ".join(subtask.get("requiredCapabilities", [])),
             "est": minutes_since_cz(order["earlieststartdate"], cz_datetime),
             "lft": minutes_since_cz(order["duedate"], cz_datetime),
+            "locations": [order['start-location'], order['end-location']],
             "duration": subtask.get("duration", None)
         })
     return pd.DataFrame(rows)
 
 
-def load_resources_and_tasks(request_path, cz_datetime_str="2025-05-19T00:00"):
+def load_travel_matrix(travel_matrix_path):
+    """Load travel time matrix from JSON file."""
+    with open(travel_matrix_path, "r") as f:
+        travel_data = json.load(f)
+    return travel_data  
+
+
+def load_resources_and_tasks(request_path, travel_matrix_path, cz_datetime_str="2025-05-19T00:00"):
     cz_datetime = datetime.fromisoformat(cz_datetime_str)
     request_data = load_request_data(request_path)
 
     # TODO: add order constraints 
     resources_df = load_resources_df(request_data["resources"])
     tasks_df = load_tasks_df(request_data["templates"], request_data["orders"], cz_datetime)
+    travel_matrix_dict = load_travel_matrix(travel_matrix_path)
 
-    return resources_df, tasks_df #TODO: return order constraints as well
+    return resources_df, tasks_df, travel_matrix_dict #TODO: return order constraints as well

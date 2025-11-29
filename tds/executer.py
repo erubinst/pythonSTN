@@ -16,7 +16,8 @@ def add_resources_to_tds(resources_df, tds_manager):
     for _, row in resources_df.iterrows():
         name = row["resource_name"]
         caps = [c.strip() for c in row["capabilities"].split(",")] if row["capabilities"] else []
-        res = Resource(name, caps, tds_manager)
+        base_location = row['location']
+        res = Resource(name, caps, base_location, tds_manager)
 
 
 def add_tasks_to_tds(tasks_df, tds_manager):
@@ -38,6 +39,7 @@ def add_tasks_to_tds(tasks_df, tds_manager):
                 tds_manager=tds_manager,
                 order=None, #TODO set order
                 template=None, #TODO set template
+                locations = row['locations'],
                 assigned_resources=None  # no assignments yet
             )
         except ValueError as e:
@@ -67,6 +69,8 @@ def load_initial_timelines_to_tds(df, tds_manager):
         resource = tds_manager.resources[res_name]
         # First time through should have header since resource is initialized
         prev_task = resource.timeline.tasks[0]
+        # If resource has traveler capability, add set generate_travel to true
+        generate_travel = True # if 'traveler' in resource.capabilities else False
 
         for _, row in group.iterrows():
             order_name = row["order"]
@@ -78,15 +82,15 @@ def load_initial_timelines_to_tds(df, tds_manager):
                 continue
 
             try:
-                resource.insert_task_to_timeline(task, capability, prev_task)
+                resource.insert_task_to_timeline(task, capability, prev_task, generate_travel)
             except ValueError as e:
                 print(f"Error appending task '{order_name}' to resource '{res_name}': {e}")
 
             prev_task = task
 
 
-resources_df, tasks_df = load_resources_and_tasks(REQUEST_PATH)
-tds = TDSManager()
+resources_df, tasks_df, travel_matrix_dict = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH)
+tds = TDSManager(travel_matrix_dict)
 add_resources_to_tds(resources_df, tds)
 add_tasks_to_tds(tasks_df, tds)
 init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)

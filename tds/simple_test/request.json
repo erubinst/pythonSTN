@@ -3,17 +3,18 @@
         {
             "name": "Annie",
             "type": "resusable",
+            "location": "AnnieHouse",
             "capabilities": [
                 "annie_presence",
                 "annie_shopping",
                 "cook",
-                "sewing",
-                "traveler"
+                "sewing"
             ]
         },
         {
             "name": "Debbie",
             "type": "resusable",
+            "location": "DebbieHouse",
             "capabilities": [
                 "debbie_presence",
                 "annie_prescription",
@@ -28,6 +29,7 @@
         {
             "name": "AnnieBrother",
             "type": "resusable",
+            "location": "AnnieBrotherHouse",
             "capabilities": [
                 "annie_brother_presence",
                 "traveler",
@@ -37,6 +39,7 @@
         {
             "name": "AnnieSon",
             "type": "resusable",
+            "location": "AnnieSonHouse",
             "capabilities": [
                 "annie_son_presence",
                 "annie_prescription",
@@ -51,14 +54,15 @@
         {
             "name": "Jane",
             "type": "resusable",
+            "location": "Downtown",
             "capabilities": [
-                "jane_presence",
-                "traveler"
+                "jane_presence"
             ]
         },
         {
             "name": "Tom",
             "type": "resusable",
+            "location": "AnnieHouse",
             "capabilities": [
                 "tom_presence",
                 "tom_shopping",

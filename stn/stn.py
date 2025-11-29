@@ -3,7 +3,7 @@ import networkx as nx
 from queue import deque
 
 
-class STN(nx.DiGraph):
+class STN(nx.MultiDiGraph):
     def __init__(self):
         super().__init__()
         self.cz = self.add_cz_tp()
@@ -27,20 +27,26 @@ class STN(nx.DiGraph):
     def add_timepoint(self, tp):
         self.add_node(tp, data = {'ub': np.inf, 'lb': 0})
 
-    def add_constraint(self, tp1, tp2, lb=0, ub=np.inf):
-        self.add_edge(tp1, tp2, weight=ub, data={'new_p': True})
-        self.add_edge(tp2, tp1, weight=-lb, data={'new_p': True})
-        # propagate constraints
-        return self.propagate(tp1, tp2)
+    # release time, due date, sequence constraint, travel constraints, duration constraints
+    def add_constraint(self, tp1, tp2, lb=0, ub=np.inf, constraint_type="sequence"):
+        # Overwrite existing constraint if same type already exists
+        if self.has_edge(tp1, tp2, key=constraint_type):
+            self.remove_edge(tp1, tp2, key=constraint_type)
+        if self.has_edge(tp2, tp1, key=constraint_type):
+            self.remove_edge(tp2, tp1, key=constraint_type)
 
-    def delete_constraint(self, tp1, tp2, consistent):
+        self.add_edge(tp1, tp2, key=constraint_type, weight=ub, data={'new_p': True})
+        self.add_edge(tp2, tp1, key=constraint_type, weight=-lb, data={'new_p': True})
+        # propagate constraints
+        return self.propagate(tp1, tp2, constraint_type)
+
+    def delete_constraint(self, tp1, tp2, constraint_type, consistent=True):
+        if self.has_edge(tp1, tp2, key=constraint_type):
+            self.remove_edge(tp1, tp2, key=constraint_type)
+        if self.has_edge(tp2, tp1, key=constraint_type):
+            self.remove_edge(tp2, tp1, key=constraint_type)
         if consistent:
-            # TODO: regular delete, call propagate
-            pass
-        else:
-            # delete the edges
-            self.remove_edge(tp1, tp2)
-            self.remove_edge(tp2, tp1)
+            self.propagate(tp1, tp2, constraint_type, new_constraint=False)
 
     def _reset_timepoint_flags(self, tp):
         self.nodes[tp]['data']['lb_p'] = False
@@ -61,7 +67,7 @@ class STN(nx.DiGraph):
         edge['data']['ub_p'] = False
         edge['data']['lb_p'] = False
 
-    def propagate(self, tp1, tp2, new_constraint=True):
+    def propagate(self, tp1, tp2, constraint_type, new_constraint=True):
         """
         Incremental approach to propagate constraints
         Need to save update information to be able to undo if constraint does not work
@@ -82,10 +88,10 @@ class STN(nx.DiGraph):
                 tp_node = self.nodes[tp]
                 if tp_node['data']['ub_p']:
                     # loop through edges going out of tp
-                    for tp_from, tp_to, data in self.out_edges(tp, data=True):
+                    for tp_from, tp_to, key, data in self.out_edges(tp, keys=True, data=True):
                         tp_to_node = self.nodes[tp_to]
                         # calculate projected upper bound
-                        new_ub = tp_node['data']['ub'] + self[tp_from][tp_to]['weight']
+                        new_ub = tp_node['data']['ub'] + data['weight']
 
                         old_ub = tp_to_node['data']['ub']
                         old_pu = tp_to_node['data'].get('pu', None)
@@ -102,18 +108,18 @@ class STN(nx.DiGraph):
 
                             # if new upper bound is less than the lower bound, raise inconsistency
                             if tp_to_node['data']['ub'] < -tp_to_node['data']['lb']:
-                                raise Exception("Inconsistent STN: upper bound less than lower bound")
+                                raise Exception("Inconsistent STN processing upper bound: upper bound less than lower bound on", tp, tp_to)
                             # If revisiting edge, raise inconsistency
                             if data.get('new_p', False) and data.get('ub_p', False):
-                                raise Exception("Inconsistent STN: revisiting edge")
+                                raise Exception("Inconsistent STN processing upper bound: revisiting edge on", tp, tp_to)
                             data['ub_p'] = True
                             if tp_to not in queue:
                                 queue.append(tp_to)                        
 
                 if tp_node['data']['lb_p']:
-                    for tp_from, tp_to, data in self.in_edges(tp, data=True):
+                    for tp_from, tp_to, key, data in self.in_edges(tp, keys=True, data=True):
                         tp_from_node = self.nodes[tp_from]
-                        new_lb = tp_node['data']['lb'] + self[tp_from][tp_to]['weight']
+                        new_lb = tp_node['data']['lb'] + data['weight']
 
                         old_lb = tp_from_node['data']['lb']
                         old_pl = tp_from_node['data'].get('pl', None)
@@ -128,11 +134,12 @@ class STN(nx.DiGraph):
 
                             # if upper bound is less than the new lower bound, raise inconsistency
                             if tp_from_node['data']['ub'] < -tp_from_node['data']['lb']:
-                                raise Exception("Inconsistent STN: upper bound less than lower bound")
+                                print(tp_from_node['data']['ub'], -tp_from_node['data']['lb'])
+                                raise Exception("Inconsistent STN processing lower bound: upper bound less than lower bound for", tp_from, tp)
                             
                             # If revisiting edge, raise inconsistency
                             if data.get('new_p', False) and data.get('lb_p', False):
-                                raise Exception("Inconsistent STN: revisiting edge")
+                                raise Exception("Inconsistent STN processing lower bound: revisiting edge on", tp_from, tp)
                             data['lb_p'] = True
                             if tp_from not in queue:
                                 queue.append(tp_from)                        
@@ -141,8 +148,8 @@ class STN(nx.DiGraph):
             
             # reset edge flags on new constraint, data.lb_p, data.ub_p only needed internally so don't need to reset
             if new_constraint:
-                self.reset_edge_flags(self[tp1][tp2])
-                self.reset_edge_flags(self[tp2][tp1])
+                self.reset_edge_flags(self[tp1][tp2][constraint_type])
+                self.reset_edge_flags(self[tp2][tp1][constraint_type])
 
             return True
         
@@ -150,6 +157,6 @@ class STN(nx.DiGraph):
             while undo_info: # pop in LIFO order
                 undo_fn = undo_info.pop()
                 undo_fn()
-            self.delete_constraint(tp1, tp2, consistent=False)
+            self.delete_constraint(tp1, tp2, constraint_type, consistent=False)
             print(e)
             return False
