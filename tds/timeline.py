@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from task import Task
+from config import MIN_HOME_TIME
 
 class Timeline:
     def __init__(self, resource, tds_manager):
@@ -43,22 +44,30 @@ class Timeline:
             if next_task is not None:
                 task.constrain_before(next_task)
                 prev_task.remove_constraint_btwn(next_task, "sequence")
+                prev_task.remove_constraint_btwn(next_task, "travel")
             if generate_travel:
                 self.generate_travel(task)
 
 
     def generate_travel(self, task):
-        prev_task = self.tasks[self.tasks.index(task) - 1]
-        prev_task_location = prev_task.locations[-1]
-        curr_task_location = task.locations[0]
-        try:
-            travel_time = self.tds.travel_matrix[prev_task_location][curr_task_location]
-        except KeyError:
-            print(f"Warning: travel time from '{prev_task_location}' to '{curr_task_location}' not found; assuming 0")
-            travel_time = 0
+        task_idx = self.tasks.index(task)
+        prev_task = self.tasks[task_idx - 1]
+        next_task = self.tasks[task_idx + 1] if task_idx + 1 < len(self.tasks) else None
 
+        prev_task_location = prev_task.locations[-1]
+        curr_task_start_location = task.locations[0]
+
+        prev_travel_time = self.tds.travel_matrix[prev_task_location][curr_task_start_location]
         # Routine for creating travel constraint
-        task.constrain_after(prev_task, travel_time, constraint_type="travel")
+        # if travel edge already exists, overrwrite native to multidigraph based on keys
+        task.constrain_after(prev_task, prev_travel_time, constraint_type="travel")
+
+        if next_task is not None:
+            curr_task_end_location = task.locations[-1]
+            next_task_location = next_task.locations[0]
+
+            after_travel_time = self.tds.travel_matrix[curr_task_end_location][next_task_location]
+            next_task.constrain_after(task, after_travel_time, constraint_type="travel")
 
         # Routine for creating travel task
         # travel_task = Task(
@@ -70,15 +79,54 @@ class Timeline:
         # travel_task.add_duration_constraint(travel_time)
         # self.insert_task(travel_task, prev_task=prev_task, generate_travel=False)
 
+    def add_return_stops(self, curr_task):
+        task_idx = self.tasks.index(curr_task)
+        prev_task = self.tasks[task_idx - 1]
+        next_task = self.tasks[task_idx + 1] 
 
-    # temporary for visibility
-    def surface_transports(self):
-        for task in self.tasks:
-            if task.locations[0] != self.resource.base_location:
-                print(f'Transportation for {task.name}')
-                print(f'Need pickup at {self.resource.base_location}')
-                print(f'Need dropoff at {task.locations[0]}')
-                print('\n')
+        prev_task_location = prev_task.locations[-1]
+        curr_task_start_location = curr_task.locations[0]
+        
+        # max time between before and now - do we have to remove travel first?
+        max_time = curr_task.start.ub - np.abs(prev_task.end.lb)
+        time_home = self.tds.travel_matrix[prev_task_location][self.resource.base_location]
+        time_back = self.tds.travel_matrix[self.resource.base_location][curr_task_start_location]
+        # neither location can be home
+        not_at_home = time_home != 0 and time_back != 0
+        if (time_home + time_back + MIN_HOME_TIME < max_time) and (not_at_home):
+            self.generate_return_home_task(prev_task, curr_task)
+
+        # max time between now and after
+        curr_task_end_location = curr_task.locations[-1]
+        next_task_location = next_task.locations[0]
+
+        max_time = next_task.start.ub - np.abs(curr_task.end.lb)
+        time_home = self.tds.travel_matrix[curr_task_end_location][self.resource.base_location]
+        time_back = self.tds.travel_matrix[self.resource.base_location][next_task_location]
+        not_at_home = time_home != 0 and time_back != 0
+        if (time_home + time_back + MIN_HOME_TIME < max_time) and (not_at_home):
+            self.generate_return_home_task(curr_task, next_task)
+
+
+    def generate_return_home_task(self, prev_task, curr_task):
+        prev_task.remove_constraint_btwn(curr_task, "travel")
+        return_home_task = Task(
+            name=f'home_after_{prev_task.name}',
+            capabilities=[],
+            locations = [self.resource.base_location, self.resource.base_location],
+            tds_manager=self.tds
+        )
+        return_home_task.add_duration_constraint(1)
+        self.insert_task(return_home_task, prev_task=prev_task, generate_travel=True)
+
+
+    def check_all_travel_slots(self):
+        """
+        TODO: To support incremental task additions, 
+        need to recheck all slots during insertion 
+        to see if there is still enough space for return home
+        """
+        pass
 
 
     def export_to_df(self):

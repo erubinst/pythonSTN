@@ -88,6 +88,11 @@ def load_initial_timelines_to_tds(df, tds_manager):
 
             prev_task = task
 
+        for _, row in group.iterrows():
+            order_name = row["order"]
+            task = tds_manager.tasks.get(order_name)
+            resource.timeline.add_return_stops(task)
+
 
 resources_df, tasks_df, travel_matrix_dict = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH)
 tds = TDSManager(travel_matrix_dict)
