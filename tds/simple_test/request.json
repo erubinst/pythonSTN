@@ -31,7 +31,7 @@
             "type": "resusable",
             "location": "AnnieBrotherHouse",
             "capabilities": [
-                "annie_brother_presence",
+                "anniebrother_presence",
                 "traveler",
                 "transport"
             ]
@@ -41,7 +41,7 @@
             "type": "resusable",
             "location": "AnnieSonHouse",
             "capabilities": [
-                "annie_son_presence",
+                "annieson_presence",
                 "annie_prescription",
                 "debbie_prescription",
                 "tom_prescription",

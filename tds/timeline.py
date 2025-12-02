@@ -14,7 +14,7 @@ class Timeline:
         generate_travel = generate_travel = True if 'traveler' in self.resource.capabilities else False
         header_task = Task(
             name=f"{self.resource.name}_header",
-            capabilities=[],
+            capabilities=[f'{self.resource.name}_presence'],
             locations=[self.resource.base_location, self.resource.base_location],
             tds_manager=self.tds,
         )
@@ -23,16 +23,17 @@ class Timeline:
         self.tasks.append(header_task)
         footer_task = Task(
             name=f"{self.resource.name}_footer",
-            capabilities=[],
+            capabilities=[f'{self.resource.name}_presence'],
             locations=[self.resource.base_location, self.resource.base_location],
             tds_manager=self.tds,
         )
         footer_task.add_time_window_constraints(global_end, global_end+1)
         footer_task.add_duration_constraint(1)
-        self.insert_task(footer_task, prev_task=header_task, generate_travel=generate_travel)
+        self.resource.insert_task_to_timeline(footer_task, f'{self.resource.name}_presence', prev_task=header_task, generate_travel=generate_travel)
 
 
     def insert_task(self, task, prev_task=None, generate_travel=True):
+        # TODO: If any of these operations don't work, we have to undo all changes made to add the task, including generating travel
         if prev_task is None:
             #TODO search for slot
             pass
@@ -85,6 +86,10 @@ class Timeline:
         prev_task = self.tasks[task_idx - 1]
         next_task = self.tasks[task_idx + 1] 
 
+        # if any task starts with home_after, skip - this is also checked when you check if you are at home
+        if curr_task.name.startswith('home_after_') or prev_task.name.startswith('home_after_') or next_task.name.startswith('home_after_'):
+            return
+
         prev_task_location = prev_task.locations[-1]
         curr_task_start_location = curr_task.locations[0]
         
@@ -110,15 +115,62 @@ class Timeline:
 
 
     def generate_return_home_task(self, prev_task, curr_task):
+        # TODO: If any of these operations fail, need to undo all changes made
         prev_task.remove_constraint_btwn(curr_task, (self.resource.name, "travel"))
         return_home_task = Task(
-            name=f'home_after_{prev_task.name}',
-            capabilities=[],
-            locations = [self.resource.base_location, self.resource.base_location],
+            name=f'home_after_{prev_task.name}_{self.resource.name}',
+            capabilities=[f'{self.resource.name}_presence'],
+            locations=[self.resource.base_location, self.resource.base_location],
             tds_manager=self.tds
         )
         return_home_task.add_duration_constraint(1)
-        self.insert_task(return_home_task, prev_task=prev_task, generate_travel=True)
+        self.resource.insert_task_to_timeline(return_home_task, f'{self.resource.name}_presence', prev_task=prev_task, generate_travel=True)
+
+
+    def add_pickup_dropoffs(self, curr_task):
+        # not intended for use on header or footer task !!!
+        task_idx = self.tasks.index(curr_task)
+        prev_task = self.tasks[task_idx - 1]
+        if prev_task.name.startswith('pickup_from_') or prev_task.name.startswith('dropoff_at_'):
+            return
+        # next_task = self.tasks[task_idx + 1] 
+
+        prev_task_location = prev_task.locations[-1]
+        curr_task_start_location = curr_task.locations[0]
+        if prev_task_location != curr_task_start_location:
+            self.generate_pickup_dropoff(prev_task, curr_task)
+
+        # curr_task_end_location = curr_task.locations[-1]
+        # next_task_location = next_task.locations[0]
+
+        # if curr_task_end_location != next_task_location:
+        #     self.generate_pickup_dropoff(curr_task, next_task)
+
+
+    def generate_pickup_dropoff(self, prev_task, curr_task):
+        pickup_task = Task(
+            name=f'pickup_from_{prev_task.name}_{self.resource.name}',
+            capabilities=[f'{self.resource.name}_presence', 'transport'],
+            locations=[prev_task.locations[-1], prev_task.locations[-1]],
+            tds_manager = self.tds
+        )
+        pickup_task.add_duration_constraint(0)
+        pickup_task.add_time_window_constraints(prev_task.end.lb, curr_task.start.ub)
+        self.resource.insert_task_to_timeline(pickup_task, f'{self.resource.name}_presence', prev_task=prev_task, generate_travel=True)
+
+        dropoff_task = Task(
+            name=f'dropoff_at_{curr_task.name}_{self.resource.name}',
+            capabilities=[f'{self.resource.name}_presence', 'transport'],
+            locations=[curr_task.locations[0], curr_task.locations[0]],
+            tds_manager = self.tds
+        )
+        dropoff_task.add_duration_constraint(0)
+        dropoff_task.add_time_window_constraints(prev_task.end.lb, curr_task.start.ub)
+        self.resource.insert_task_to_timeline(dropoff_task, f'{self.resource.name}_presence', prev_task=pickup_task, generate_travel=True)
+
+        travel_duration = self.tds.travel_matrix[prev_task.locations[-1]][curr_task.locations[0]]
+
+        dropoff_task.constrain_after(pickup_task, (self.resource.name, "transport"), travel_duration)
 
 
     def check_all_travel_slots(self):

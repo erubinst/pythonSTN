@@ -21,25 +21,39 @@ def display_current_schedule(tds, epoch_date_str):
     df["end_lb_time"]   = df["end_lb"].dt.strftime("%H:%M")
     df["start_ub_time"] = df["start_ub"].dt.strftime("%H:%M")
     df["end_ub_time"]   = df["end_ub"].dt.strftime("%H:%M")
+
     # if task name contains 'travel', set to different color
     df['type'] = 'task'
     df.loc[df['task_name'].str.contains('travel'), 'type'] = 'travel'
+    df.loc[df['task_name'].str.contains('pickup_from_'), 'type'] = 'transport'
+    df.loc[df['task_name'].str.contains('dropoff_at_'), 'type'] = 'transport'
     df["type"] = df["type"].astype(str)
-    # set color based on type
-    color_discrete_map={
-        "task": "#00008B",
-        "travel": "#FFFF00"
-    }
 
+    color_discrete_map = {
+        "task": "#00008B",
+        "travel": "#FFFF00",
+        "transport": "#FFB269",
+    }
 
     df['resource'] = df['resource'].astype(str)
     df = df.sort_values('resource')
+
+    # ---------------------------------------------------------
+    # ADD SMALL ARTIFICIAL DURATION FOR ZERO-LENGTH TASKS
+    # ---------------------------------------------------------
+    epsilon = pd.Timedelta(minutes=0.5)  # can be 1s or 30s if you prefer smaller
+
+    df['end_lb_plot'] = df['end_lb']  # new plotting end time
+    zero_mask = df['start_lb'] == df['end_lb']
+    df.loc[zero_mask, 'end_lb_plot'] = df.loc[zero_mask, 'end_lb'] + epsilon
+    # ---------------------------------------------------------
+
     fig = px.timeline(
         df,
         x_start="start_lb",
-        x_end="end_lb",
+        x_end="end_lb_plot",  # <<< use modified end time here
         y="resource",
-        text = "task_name",
+        text="task_name",
         color="type",
         hover_data={
             "start_lb": False,
@@ -53,12 +67,14 @@ def display_current_schedule(tds, epoch_date_str):
         },
         color_discrete_map=color_discrete_map
     )
+
     fig.update_layout(
         title="Current Schedule",
         xaxis_title="Time",
         yaxis_title="Resource",
         height=600,
     )
+
     for trace in fig.data:
         if 'text' in trace:
             trace.textposition = 'inside'
@@ -66,6 +82,7 @@ def display_current_schedule(tds, epoch_date_str):
     fig.update_traces(
         textposition='inside',
         insidetextanchor='middle',
-        textfont_size=20  # Increase number for bigger text
+        textfont_size=20
     )
+
     fig.show()

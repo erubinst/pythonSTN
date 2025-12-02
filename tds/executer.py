@@ -62,6 +62,7 @@ def load_initial_timelines_to_tds(df, tds_manager):
     """
     # go through groups by resource name
     for res_name, group in df.groupby("resourceName"):
+        res_name = res_name.lower()
         if res_name not in tds_manager.resources:
             print(f"Warning: resource '{res_name}' not found; skipping timeline")
             continue
@@ -73,8 +74,8 @@ def load_initial_timelines_to_tds(df, tds_manager):
         generate_travel = True # if 'traveler' in resource.capabilities else False
 
         for _, row in group.iterrows():
-            order_name = row["order"]
-            capability = row["capability"]
+            order_name = row["order"].lower()
+            capability = row["capability"].lower()
 
             task = tds_manager.tasks.get(order_name)
             if not task:
@@ -89,10 +90,19 @@ def load_initial_timelines_to_tds(df, tds_manager):
             prev_task = task
 
         for _, row in group.iterrows():
-            order_name = row["order"]
+            order_name = row["order"].lower()
             task = tds_manager.tasks.get(order_name)
             resource.timeline.add_return_stops(task)
             # initially schedule transport on nondriver timeline
+
+        original_task_list = list(resource.timeline.tasks)
+        for task in original_task_list:
+            # skip header
+            if task.name == f'header_{resource.name}':
+                continue
+            if 'traveler' not in resource.capabilities:
+                resource.timeline.add_pickup_dropoffs(task)
+
 
 
 

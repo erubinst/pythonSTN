@@ -14,8 +14,8 @@ class Task:
         Create a Task and its start/end timepoints.
         assigned_resources: dict capability -> Resource (may be empty)
         """
-        self.name = name
-        self.capabilities = list(capabilities)
+        self.name = name.lower()
+        self.capabilities = {c.lower() for c in capabilities}
         self.tds = tds_manager
         self.order = order
         self.template = template

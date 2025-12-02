@@ -1,11 +1,12 @@
 from timeline import Timeline
 from config import *
 import pandas as pd
+import numpy as np
 
 class Resource:
     def __init__(self, name, capabilities, base_location, tds_manager):
-        self.name = name
-        self.capabilities = set(capabilities)
+        self.name = name.lower()
+        self.capabilities = {c.lower() for c in capabilities}
         self.tds = tds_manager
         self.base_location = base_location
         self.timeline = Timeline(self, tds_manager)
@@ -22,6 +23,7 @@ class Resource:
 
     def has_capability(self, capability):
         return capability in self.capabilities
+    
     
     def generate_transport_requests(self):
         # TODO: change this to be a proper request file format
