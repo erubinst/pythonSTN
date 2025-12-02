@@ -12,7 +12,7 @@ class Timepoint:
             self.tds.stn.add_timepoint(name)
         # optional bounds relative to zero
 
-    def add_constraint(self, other, min_gap=0, max_gap=np.inf, constraint_type="sequence"):
+    def add_constraint(self, other, constraint_type, min_gap=0, max_gap=np.inf):
         """
         Add: min_gap <= other - self <= max_gap
         Uses STN.add_constraint(self.name, other.name, lb, ub)

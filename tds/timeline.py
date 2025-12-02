@@ -40,11 +40,11 @@ class Timeline:
             prev_task_idx = self.tasks.index(prev_task)
             next_task = self.tasks[prev_task_idx + 1] if prev_task_idx + 1 < len(self.tasks) else None
             self.tasks.insert(prev_task_idx + 1, task)
-            task.constrain_after(prev_task)
+            task.constrain_after(prev_task, (self.resource, "sequence"))
             if next_task is not None:
-                task.constrain_before(next_task)
-                prev_task.remove_constraint_btwn(next_task, "sequence")
-                prev_task.remove_constraint_btwn(next_task, "travel")
+                task.constrain_before(next_task, (self.resource.name, "sequence"))
+                prev_task.remove_constraint_btwn(next_task, (self.resource.name,"sequence"))
+                prev_task.remove_constraint_btwn(next_task, (self.resource.name,"travel"))
             if generate_travel:
                 self.generate_travel(task)
 
@@ -60,14 +60,14 @@ class Timeline:
         prev_travel_time = self.tds.travel_matrix[prev_task_location][curr_task_start_location]
         # Routine for creating travel constraint
         # if travel edge already exists, overrwrite native to multidigraph based on keys
-        task.constrain_after(prev_task, prev_travel_time, constraint_type="travel")
+        task.constrain_after(prev_task, (self.resource.name, "travel"), prev_travel_time)
 
         if next_task is not None:
             curr_task_end_location = task.locations[-1]
             next_task_location = next_task.locations[0]
 
             after_travel_time = self.tds.travel_matrix[curr_task_end_location][next_task_location]
-            next_task.constrain_after(task, after_travel_time, constraint_type="travel")
+            next_task.constrain_after(task, (self.resource.name, "travel"), after_travel_time)
 
         # Routine for creating travel task
         # travel_task = Task(
@@ -80,6 +80,7 @@ class Timeline:
         # self.insert_task(travel_task, prev_task=prev_task, generate_travel=False)
 
     def add_return_stops(self, curr_task):
+        # not intended for use on header or footer task !!!
         task_idx = self.tasks.index(curr_task)
         prev_task = self.tasks[task_idx - 1]
         next_task = self.tasks[task_idx + 1] 
@@ -109,7 +110,7 @@ class Timeline:
 
 
     def generate_return_home_task(self, prev_task, curr_task):
-        prev_task.remove_constraint_btwn(curr_task, "travel")
+        prev_task.remove_constraint_btwn(curr_task, (self.resource.name, "travel"))
         return_home_task = Task(
             name=f'home_after_{prev_task.name}',
             capabilities=[],

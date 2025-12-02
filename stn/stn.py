@@ -28,7 +28,7 @@ class STN(nx.MultiDiGraph):
         self.add_node(tp, data = {'ub': np.inf, 'lb': 0})
 
     # release time, due date, sequence constraint, travel constraints, duration constraints
-    def add_constraint(self, tp1, tp2, lb=0, ub=np.inf, constraint_type="sequence"):
+    def add_constraint(self, tp1, tp2, constraint_type, lb=0, ub=np.inf,):
         # Overwrite existing constraint if same type already exists
         if self.has_edge(tp1, tp2, key=constraint_type):
             self.remove_edge(tp1, tp2, key=constraint_type)

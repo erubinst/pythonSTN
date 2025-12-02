@@ -26,3 +26,37 @@ class TDSManager:
             timeline_df = resource.timeline.export_to_df()
             df = pd.concat([df, timeline_df])
         return df
+    
+    def export_transport_request(self):
+        output = {
+            "resources": []
+        }
+
+        for resource in self.resources.values(): 
+            if 'traveler' not in resource.capabilities:
+                transport_df = resource.generate_transport_requests()
+                jobs = []
+                for _, row in transport_df.iterrows():
+                    job_entry = {
+                        "name": row["job_name"],  # job/sequence name
+                        "pickup": {
+                            "location": row["pickup_location"]
+                        },
+                        "dropoff": {
+                            "location": row["dropoff_location"]
+                        },
+                        "prior_task": row["prior_task"],
+                        "next_task": row["next_task"],
+                        "travel_time": row["travel_time"]
+                    }
+                    jobs.append(job_entry)
+
+                # Add this resource + its jobs to output JSON
+                resource_entry = {
+                    "name": resource.name,  # ← your resource attribute
+                    "tasks": jobs
+                }
+
+                output["resources"].append(resource_entry)
+
+        return output

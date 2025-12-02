@@ -30,18 +30,18 @@ class Task:
         self.tds.add_task_to_manager(self)
 
     def add_time_window_constraints(self, start_time, end_time):
-        self.tds.cz.add_constraint(self.start, start_time, constraint_type="release_time")
-        self.tds.cz.add_constraint(self.end, 0, end_time, constraint_type="due_date")
+        self.tds.cz.add_constraint(self.start, ("all", "release_time"), start_time)
+        self.tds.cz.add_constraint(self.end, ("all","due_date"), 0, end_time)
 
     def add_duration_constraint(self, duration):
-        self.start.add_constraint(self.end, duration, duration, constraint_type="duration")
+        self.start.add_constraint(self.end, ("all","duration"), duration, duration)
 
-    def constrain_before(self, other_task, min_gap=0, max_gap=np.inf, constraint_type="sequence"):
-        self.end.add_constraint(other_task.start, min_gap=min_gap, max_gap=max_gap, constraint_type=constraint_type)
+    def constrain_before(self, other_task, constraint_type, min_gap=0, max_gap=np.inf):
+        self.end.add_constraint(other_task.start, constraint_type, min_gap=min_gap, max_gap=max_gap)
 
-    def constrain_after(self, other_task, min_gap=0, max_gap=np.inf, constraint_type="sequence"):
+    def constrain_after(self, other_task, constraint_type, min_gap=0, max_gap=np.inf):
         # sequence type constraint
-        other_task.end.add_constraint(self.start, min_gap=min_gap, max_gap=max_gap, constraint_type=constraint_type)
+        other_task.end.add_constraint(self.start, constraint_type, min_gap=min_gap, max_gap=max_gap)
 
     def remove_constraint_btwn(self, other_task, constraint_type):
         self.end.delete_constraint(other_task.start, constraint_type)

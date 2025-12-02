@@ -92,6 +92,9 @@ def load_initial_timelines_to_tds(df, tds_manager):
             order_name = row["order"]
             task = tds_manager.tasks.get(order_name)
             resource.timeline.add_return_stops(task)
+            # initially schedule transport on nondriver timeline
+
+
 
 
 resources_df, tasks_df, travel_matrix_dict = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH)
