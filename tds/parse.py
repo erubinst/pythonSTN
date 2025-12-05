@@ -17,7 +17,7 @@ def load_request_data(request_path):
         "templates": templates,
         "orders": orders,
         "resources": resources,
-        "order_constraints": request_data.get("order-constraints", [])
+        "order_constraints": request_data.get("order-constraints", []) # adjust this to the format you want for order constarints
     }
 
 

@@ -23,7 +23,8 @@
                 "jane_prescription",
                 "handywork",
                 "volunteer",
-                "traveler"
+                "traveler",
+                "transport"
             ]
         },
         {
@@ -414,7 +415,7 @@
         {
             "relation": "BEFORE",
             "source": "APrescriptionPickup",
-            "destination": "DentalAppointment"
+            "destination": "DPrescriptionPickup"
         }
     ]
 }

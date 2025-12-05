@@ -7,3 +7,4 @@ GLOBAL_START = 1915
 GLOBAL_END = 2375
 MIN_HOME_TIME = 60
 TRANSPORT_REQUEST_OUTPUT_PATH = '/Users/esmerubinstein/Desktop/ICLL/pythonSTN/tds/transport_requests_output.json'
+MAX_ADDITIONAL_RIDE_TIME = 40  # minutes

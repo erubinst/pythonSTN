@@ -24,9 +24,9 @@ def display_current_schedule(tds, epoch_date_str):
 
     # if task name contains 'travel', set to different color
     df['type'] = 'task'
-    df.loc[df['task_name'].str.contains('travel'), 'type'] = 'travel'
-    df.loc[df['task_name'].str.contains('pickup_from_'), 'type'] = 'transport'
-    df.loc[df['task_name'].str.contains('dropoff_at_'), 'type'] = 'transport'
+    df.loc[df['task_name'].str.startswith('travel'), 'type'] = 'travel'
+    df.loc[df['task_name'].str.startswith('pickup_from_'), 'type'] = 'transport'
+    df.loc[df['task_name'].str.startswith('dropoff_at_'), 'type'] = 'transport'
     df["type"] = df["type"].astype(str)
 
     color_discrete_map = {

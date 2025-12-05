@@ -1,6 +1,7 @@
 from stn.stn import STN
 from timepoint import Timepoint
 import pandas as pd
+import numpy as np
 
 class TDSManager:
     def __init__(self, travel_matrix=None):
@@ -9,6 +10,19 @@ class TDSManager:
         self.tasks = {}         # name or order -> Task
         self.cz = Timepoint('zero', self, add_to_stn=False)
         self.travel_matrix = travel_matrix
+
+    def sum_total_travel(self):
+        total_travel_weight = sum(
+            np.abs(data.get("weight", 0))
+            for _, _, key, data in self.stn.edges(keys=True, data=True)
+            if (
+                isinstance(key, tuple)
+                and len(key) > 1
+                and key[1] == "travel"
+                and not np.isinf(data.get("weight", 0))
+            )
+        )
+        return total_travel_weight
 
     def add_task_to_manager(self, task):
         """Register a task with the manager."""
