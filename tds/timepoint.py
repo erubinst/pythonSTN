@@ -1,4 +1,5 @@
 import numpy as np
+import networkx as nx
 
 class Timepoint:
     def __init__(self, name, tds_manager, add_to_stn=True):
@@ -19,12 +20,20 @@ class Timepoint:
         """
         return self.tds.stn.add_constraint(self.name, other.name, lb=min_gap, ub=max_gap, constraint_type=constraint_type, print_inconsistencies=print_inconsistencies)
     
+    def update_name(self, new_name):
+        mapping = {self.name: new_name}
+        nx.relabel_nodes(self.tds.stn, mapping, copy=False)
+        self.name = new_name
+    
     def delete_constraint(self, other, constraint_type):
         """
         Delete constraint between self and other timepoint.
         Uses STN.delete_constraint(self.name, other.name)
         """
         self.tds.stn.delete_constraint(self.name, other.name, constraint_type)
+
+    def delete_timepoint(self):
+        self.tds.stn.delete_timepoint(self.name)
 
     def ub_edge_weight(self, other, constraint_type):
         if self.tds.stn.has_edge(self.name, other.name, key=constraint_type):

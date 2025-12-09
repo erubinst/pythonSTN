@@ -8,11 +8,9 @@ class Task:
                  tds_manager, 
                  order=None, 
                  template=None, 
-                 locations=[],
-                 assigned_resources=None):
+                 locations=[]):
         """
         Create a Task and its start/end timepoints.
-        assigned_resources: dict capability -> Resource (may be empty)
         """
         self.name = name.lower()
         self.capabilities = {c.lower() for c in capabilities}
@@ -20,7 +18,6 @@ class Task:
         self.order = order
         self.template = template
         self.locations = locations # start and end locations in a list
-        self.assigned_resources = {} if assigned_resources is None else dict(assigned_resources)
 
         # create timepoints through the manager so they are registered there
         self.start = Timepoint(f'{name}_start', self.tds)
@@ -29,9 +26,22 @@ class Task:
         # register this task object with the manager under its name
         self.tds.add_task_to_manager(self)
 
+    def update_task_name(self, new_name):
+        old_name = self.name
+        self.tds.tasks[new_name.lower()] = self.tds.tasks.pop(old_name)
+        self.name = new_name.lower()
+        self.start.update_name(f'{new_name}_start')
+        self.end.update_name(f'{new_name}_end')
+
     def delete_task(self):
         for tp in [self.start, self.end]:
-            self.tds.stn.delete_timepoint(tp)
+            tp.delete_timepoint()
+        self.tds.tasks.pop(self.name, None)
+        # add routine to remove from resource timelines if assigned
+        for resource in self.tds.resources.values():
+            if self in resource.timeline.tasks:
+                resource.timeline.remove_task(self)
+        
 
     def add_time_window_constraints(self, start_time, end_time):
         self.tds.cz.add_constraint(self.start, ("all", "release_time"), start_time)
@@ -58,7 +68,14 @@ class Task:
     def assign_resource(self, capability, resource):
         if capability not in self.capabilities:
             raise ValueError(f"{capability} not required by task {self.name}")
-        self.assigned_resources[capability] = resource.name
+        
+
+    def __eq__(self, other):
+        if not isinstance(other, Task):
+            return False
+        return self.name == other.name  # or compare by whatever makes two tasks "the same"
+        
 
     def __repr__(self):
-        return f"<Task {self.name} caps={self.capabilities} assigned={list(self.assigned_resources.keys())}>"
+        return f"<Task {self.name} caps={self.capabilities}>"
+

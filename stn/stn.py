@@ -1,6 +1,7 @@
 import numpy as np
 import networkx as nx
 from queue import deque
+import traceback
 
 
 class STN(nx.MultiDiGraph):
@@ -30,10 +31,10 @@ class STN(nx.MultiDiGraph):
     def delete_timepoint(self, tp):
         for succ in list(self.successors(tp)):
             for key in list(self[tp][succ].keys()):
-                tp.delete_constraint(succ, key)
+                self.delete_constraint(tp, succ, key)
         for pred in list(self.predecessors(tp)):
             for key in list(self[pred][tp].keys()):
-                pred.delete_constraint(tp, key)
+                self.delete_constraint(pred, tp, key)
         self.remove_node(tp)
 
     # release time, due date, sequence constraint, travel constraints, duration constraints

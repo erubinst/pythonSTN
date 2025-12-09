@@ -18,12 +18,13 @@ class Resource:
         # Ensure task is appended via timeline (this will add STN ordering when prev task given)
         if capability not in self.capabilities:
             raise ValueError(f"Resource '{self.name}' does not have capability '{capability}'")
-        self.timeline.insert_task(task, prev_task, generate_travel=generate_travel)
-        task.assign_resource(capability, self)
+        self.timeline.insert_task(task, capability, prev_task, generate_travel=generate_travel)
+
+    def remove_task_from_timeline(self, task):
+        self.timeline.remove_task(task)
 
     def has_capability(self, capability):
         return capability in self.capabilities
-    
     
     def generate_transport_requests(self):
         # TODO: change this to be a proper request file format

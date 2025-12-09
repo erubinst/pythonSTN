@@ -1,12 +1,23 @@
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
+import inspect
 
 def minutes_since_cz(timestamp_str, cz_datetime):
     """Convert ISO datetime string to minutes since cz."""
     dt = datetime.fromisoformat(timestamp_str)
     delta = dt - cz_datetime
     return int(delta.total_seconds() / 60)
+
+def execute_undo_functions(undo_info):
+    while undo_info: # pop in LIFO order
+        undo_fn_info = undo_info.pop()
+        if isinstance(undo_fn_info, tuple):
+            name, undo_fn = undo_fn_info
+            # print(f"Executing: {name}")
+            undo_fn()
+        else:
+            undo_fn_info()
 
 
 def display_current_schedule(tds, epoch_date_str):

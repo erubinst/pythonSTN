@@ -3,12 +3,14 @@ import pandas as pd
 from task import Task
 from config import MIN_HOME_TIME
 from queue import deque
+from utils import execute_undo_functions
 
 class Timeline:
     def __init__(self, resource, tds_manager):
         self.resource = resource
         self.tds = tds_manager
-        self.tasks = []
+        self.tasks = [] 
+        self.capability_assigned = []
     
     def create_header_footer(self, global_start=0, global_end=np.inf):
         """Create header and footer tasks for the timeline."""
@@ -22,6 +24,7 @@ class Timeline:
         header_task.add_time_window_constraints(global_start, global_start+1)
         header_task.add_duration_constraint(1)
         self.tasks.append(header_task)
+        self.capability_assigned.append(f'{self.resource.name}_presence')
         footer_task = Task(
             name=f"{self.resource.name}_footer",
             capabilities=[f'{self.resource.name}_presence'],
@@ -32,8 +35,44 @@ class Timeline:
         footer_task.add_duration_constraint(1)
         self.resource.insert_task_to_timeline(footer_task, f'{self.resource.name}_presence', prev_task=header_task, generate_travel=generate_travel)
 
+    
+    def remove_task(self, task):
+        task_idx = self.tasks.index(task)
+        prev_task = self.tasks[task_idx - 1] if task_idx - 1 >= 0 else None
+        next_task = self.tasks[task_idx + 1] if task_idx + 1 < len(self.tasks) else None
 
-    def insert_task(self, task, prev_task=None, generate_travel=True):
+        # Remove sequence constraints
+        if prev_task:
+            prev_task.remove_constraint_btwn(task, (self.resource.name, "sequence"))
+        if next_task:
+            task.remove_constraint_btwn(next_task, (self.resource.name, "sequence"))
+
+        # Remove travel constraints if applicable
+        if prev_task and next_task:
+            prev_task.remove_constraint_btwn(task, (self.resource.name, "travel"))
+            task.remove_constraint_btwn(next_task, (self.resource.name, "travel"))
+            travel_duration = self.tds.travel_matrix[prev_task.locations[-1]][next_task.locations[0]]
+            prev_task.constrain_before(next_task, (self.resource.name, "travel"), travel_duration)
+
+        # Add sequence constraint between prev_task and next_task if both exist
+        if prev_task and next_task:
+            prev_task.constrain_before(next_task, (self.resource.name, "sequence"))
+
+        # Finally remove the task from the timeline
+        self.tasks.remove(task)
+        self.capability_assigned.pop(task_idx)
+
+    def print_tasks(self):
+        for task in self.tasks:
+            print(task.name)
+
+    def list_task_names(self):
+        task_lst = []
+        for task in self.tasks:
+            task_lst.append(task.name)
+        return task_lst
+
+    def insert_task(self, task, capability, prev_task=None, generate_travel=True):
         # TODO: If any of these operations don't work, we have to undo all changes made to add the task, including generating travel
         if prev_task is None:
             #TODO search for slot
@@ -42,6 +81,7 @@ class Timeline:
             prev_task_idx = self.tasks.index(prev_task)
             next_task = self.tasks[prev_task_idx + 1] if prev_task_idx + 1 < len(self.tasks) else None
             self.tasks.insert(prev_task_idx + 1, task)
+            self.capability_assigned.insert(prev_task_idx + 1, capability)
             task.constrain_after(prev_task, (self.resource.name, "sequence"))
             if next_task is not None:
                 task.constrain_before(next_task, (self.resource.name, "sequence"))
@@ -82,7 +122,7 @@ class Timeline:
         # self.insert_task(travel_task, prev_task=prev_task, generate_travel=False)
 
 
-    def try_slot(self, new_task, prior_task):
+    def try_slot(self, new_task, prior_task, capability):
         new_task_duration = 0 # TODO: update to find duration constraint edge between start and end node of task
         new_task_eft = new_task.end.lb
         prior_task_idx = self.tasks.index(prior_task)
@@ -104,10 +144,10 @@ class Timeline:
             if available_time < required_time:
                 return False
             
-        return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel)
+        return self.try_task_on_timeline(prior_task, new_task, post_task, capability, to_travel, from_travel)
 
 
-    def map_feasible_slots(self, new_task, starting_task=None):
+    def map_feasible_slots(self, new_task, capability, starting_task=None):
         if starting_task is None:
             starting_task = self.tasks[0] if self.tasks else None
 
@@ -123,13 +163,13 @@ class Timeline:
             if prior_eft > new_task_lst:
                 break
 
-            undo_stack = self.try_slot(new_task, prior_task)
+            undo_stack = self.try_slot(new_task, prior_task, capability)
             if undo_stack:
                 results.append({
                     'task1_prior_task': prior_task,
                     'total_travel': self.tds.sum_total_travel()
                 })
-                self.execute_undo_functions(undo_stack)
+                execute_undo_functions(undo_stack)
 
             prior_task_idx += 1
             if prior_task_idx < len(self.tasks):
@@ -137,59 +177,11 @@ class Timeline:
             else:
                 prior_task = None
 
-        return results
-    
+        return results            
 
-    def map_feasible_slots_multiple_same_slot(self, tasks, starting_task=None):
-        if starting_task is None:
-            starting_task = self.tasks[0] if self.tasks else None
-        
-        results = []
-        prior_task = starting_task
-        prior_task_idx = self.tasks.index(prior_task)
-        # assume ordered
-        task_group_lst = tasks[0].start.ub
-
-        while prior_task is not None and not prior_task.name.endswith('_footer'):
-            prior_eft = prior_task.end.lb
-            if prior_eft > task_group_lst:
-                break
-
-            # Try to fit all tasks in this slot
-            undo_stacks = deque()
-            all_fit = True
-            
-            for task in tasks:
-                undo_stack = self.try_slot(task, prior_task)
-                
-                if undo_stack:
-                    # Task fits in this slot
-                    undo_stacks.append(undo_stack)
-                else:
-                    # Task doesn't fit - undo all previous tasks in the group
-                    all_fit = False
-                    while undo_stacks:
-                        self.execute_undo_functions(undo_stacks.pop())
-                    break  # Stop trying tasks in this slot
-            
-            if all_fit:
-                # All tasks fit in this slot - save it as a result
-                results.append(prior_task)
-                # Undo all tasks to try next slot
-                while undo_stacks:
-                    self.execute_undo_functions(undo_stacks.pop())
-            
-            prior_task_idx += 1
-            if prior_task_idx < len(self.tasks):
-                prior_task = self.tasks[prior_task_idx]
-            else:
-                prior_task = None
-        
-        return results
-                
-    
 
     def map_feasible_slots_linked_tasks(self, task1, task2, starting_task=None):
+        # use for pickup/dropoff
         if starting_task is None:
             starting_task = self.tasks[0] if self.tasks else None
         
@@ -197,37 +189,40 @@ class Timeline:
 
         prior1_task = starting_task
         prior1_task_idx = self.tasks.index(prior1_task)
-        prior2_task = starting_task
-        prior2_task_idx = self.tasks.index(prior2_task)
         task1_lst = task1.start.ub
         task2_lst = task2.start.ub
+        
         while prior1_task is not None and not prior1_task.name.endswith('_footer'):
             prior1_eft = prior1_task.end.lb
             if prior1_eft > task1_lst:
                 break
             
-            undo1_stack = self.try_slot(task1, prior1_task)
+            undo1_stack = self.try_slot(task1, prior1_task, 'transport')
             if undo1_stack:
-                # task2_slots = self.map_feasible_slots(task2, starting_task = prior2_task)
+                # Reset prior2_task for each task1 placement
+                prior2_task = task1  # Start from task1, not starting_task
+                prior2_task_idx = self.tasks.index(prior2_task)
+                
                 while prior2_task is not None and not prior2_task.name.endswith('_footer'):
                     prior2_eft = prior2_task.end.lb
                     if prior2_eft > task2_lst:
                         break
-                    undo2_stack = self.try_slot(task2, prior2_task)
+                    undo2_stack = self.try_slot(task2, prior2_task, 'transport')
                     if undo2_stack:
                         results.append({
                             'task1_prior_task': prior1_task,
                             'task2_prior_task': prior2_task,
                             'total_travel': self.tds.sum_total_travel()
                         })
-                        self.execute_undo_functions(undo2_stack)
+                        execute_undo_functions(undo2_stack)
 
-                    prior2_task_idx +=1
+                    prior2_task_idx += 1
                     if prior2_task_idx < len(self.tasks):
                         prior2_task = self.tasks[prior2_task_idx]
                     else:
                         prior2_task = None
-                self.execute_undo_functions(undo1_stack)
+                execute_undo_functions(undo1_stack)
+                
             prior1_task_idx += 1
             if prior1_task_idx < len(self.tasks):
                 prior1_task = self.tasks[prior1_task_idx]
@@ -236,26 +231,28 @@ class Timeline:
         return results
                 
 
-    def try_task_on_timeline(self, prior_task, new_task, post_task, to_travel, from_travel):
+    def try_task_on_timeline(self, prior_task, new_task, post_task, capability, to_travel, from_travel):
         undo_stack = deque()
 
         prior_idx = self.tasks.index(prior_task)
         self.tasks.insert(prior_idx + 1, new_task)
-        undo_stack.append(lambda: self.tasks.remove(new_task))
+        self.capability_assigned.insert(prior_idx + 1, capability)
+        undo_stack.append((f'removing {new_task.name} from {self.resource.name} timeline list', lambda: self.tasks.remove(new_task)))
+        undo_stack.append((f'removing {capability} from {self.resource.name} timeline list', lambda: self.capability_assigned.pop(prior_idx + 1)))
 
         # Constraint 1: sequence after prior_task
         constraint1 = new_task.constrain_after(prior_task, (self.resource.name, "sequence"), print_inconsistencies=False)
         if not constraint1:
-            self.execute_undo_functions(undo_stack)
+            execute_undo_functions(undo_stack)
             return False
-        undo_stack.append(lambda: prior_task.remove_constraint_btwn(new_task, (self.resource.name, "sequence")))
+        undo_stack.append((f'removing sequence btwn {prior_task.name} and {new_task.name}', lambda: prior_task.remove_constraint_btwn(new_task, (self.resource.name, "sequence"))))
 
         # Constraint 2: travel after prior_task
         constraint2 = new_task.constrain_after(prior_task, (self.resource.name, "travel"), to_travel, print_inconsistencies=False)
         if not constraint2:
-            self.execute_undo_functions(undo_stack)
+            execute_undo_functions(undo_stack)
             return False
-        undo_stack.append(lambda: prior_task.remove_constraint_btwn(new_task, (self.resource.name, "travel")))
+        undo_stack.append((f'removing travel btwn {prior_task.name} and {new_task.name}', lambda: prior_task.remove_constraint_btwn(new_task, (self.resource.name, "travel"))))
 
         if post_task:
             # FIRST: Capture the old constraint values
@@ -266,36 +263,28 @@ class Timeline:
             # SECOND: Remove old constraints (relaxations - always succeed)
             prior_task.remove_constraint_btwn(post_task, (self.resource.name, "sequence"))
             # Capture values in lambda with default arguments
-            undo_stack.append(lambda lb=lb_seq, ub=ub_seq: 
+            undo_stack.append((f'restoring sequence btwn {prior_task.name} and {post_task.name}', lambda lb=lb_seq, ub=ub_seq: 
                             prior_task.restore_constraint_btwn(post_task, (self.resource.name, "sequence"), 
-                                                            min_gap=lb, max_gap=ub))
+                                                            min_gap=lb, max_gap=ub)))
             
             prior_task.remove_constraint_btwn(post_task, (self.resource.name, "travel"))
-            undo_stack.append(lambda lb=travel_lb: 
+            undo_stack.append((f'restoring travel btwn {prior_task.name} and {post_task.name}', lambda lb=travel_lb: 
                             prior_task.restore_constraint_btwn(post_task, (self.resource.name, "travel"), 
-                                                            min_gap=lb))
+                                                            min_gap=lb)))
             
             # THIRD: Add new constraints (these can fail)
             constraint3 = post_task.constrain_after(new_task, (self.resource.name, "sequence"), print_inconsistencies=False)
             if not constraint3:
-                self.execute_undo_functions(undo_stack)
+                execute_undo_functions(undo_stack)
                 return False            
-            undo_stack.append(lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "sequence")))
+            undo_stack.append((f'removing sequence btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "sequence"))))
 
             constraint4 = post_task.constrain_after(new_task, (self.resource.name, "travel"), from_travel, print_inconsistencies=False)
             if not constraint4:
-                self.execute_undo_functions(undo_stack)
+                execute_undo_functions(undo_stack)
                 return False
-            undo_stack.append(lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "travel")))
-
+            undo_stack.append((f'removing travel btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "travel"))))
         return undo_stack
-
-
-
-    def execute_undo_functions(self, undo_info):
-        while undo_info: # pop in LIFO order
-            undo_fn = undo_info.pop()
-            undo_fn()
 
 
     def add_return_stops(self, curr_task):
@@ -346,28 +335,23 @@ class Timeline:
 
 
     def add_pickup_dropoffs(self, curr_task):
-        # TODO: Support undo if does not work
         # not intended for use on header or footer task !!!
+        # used for the timeline that NEEDS the pickup/dropoff, not the driver
         pickup, dropoff = None, None
         task_idx = self.tasks.index(curr_task)
         prev_task = self.tasks[task_idx - 1]
         if prev_task.name.startswith('pickup_from_') or prev_task.name.startswith('dropoff_at_'):
             return
-        # next_task = self.tasks[task_idx + 1] 
 
         prev_task_location = prev_task.locations[-1]
         curr_task_start_location = curr_task.locations[0]
         if prev_task_location != curr_task_start_location:
-            pickup, dropoff = self.generate_pickup_dropoff(prev_task, curr_task)
+            pickup, dropoff,_ = self.generate_possible_pickup_dropoff(prev_task, curr_task)
+        if pickup:
+            self.resource.insert_task_to_timeline(pickup, f'{self.resource.name}_presence', prev_task=prev_task, generate_travel=True)
+        if dropoff:
+            self.resource.insert_task_to_timeline(dropoff, f'{self.resource.name}_presence', prev_task=pickup, generate_travel=True)
 
-        return pickup, dropoff
-
-        # TODO: Should this function go both ways? This would support incremental addition after initial scheduling
-        # curr_task_end_location = curr_task.locations[-1]
-        # next_task_location = next_task.locations[0]
-
-        # if curr_task_end_location != next_task_location:
-        #     self.generate_pickup_dropoff(curr_task, next_task)
 
 
     def generate_possible_pickup_dropoff(self, prev_task, task):
@@ -380,9 +364,10 @@ class Timeline:
             tds_manager = self.tds
         )
         pickup_task.add_duration_constraint(0)
-        pickup_task.add_time_window_constraints(prev_task.end.lb, task.start.ub)
+        pickup_task.add_time_window_constraints(np.abs(prev_task.end.lb), task.start.ub)
+        undo_stack.append((f'deleting {pickup_task.name}', lambda: pickup_task.delete_task()))
         # self.resource.insert_task_to_timeline(pickup_task, f'{self.resource.name}_presence', prev_task=prev_task, generate_travel=True)
-        undo_stack.append(lambda: self.resource.timeline.tasks.remove(pickup_task))
+        # undo_stack.append(lambda: self.resource.timeline.tasks.remove(pickup_task))
         dropoff_task = Task(
             name=f'dropoff_at_{task.name}_{self.resource.name}',
             capabilities=[f'{self.resource.name}_presence', 'transport'],
@@ -390,8 +375,9 @@ class Timeline:
             tds_manager = self.tds
         )
         dropoff_task.add_duration_constraint(0)
-        dropoff_task.add_time_window_constraints(prev_task.end.lb, task.start.ub)
-        undo_stack.append(lambda: self.resource.timeline.tasks.remove(dropoff_task))
+        dropoff_task.add_time_window_constraints(np.abs(prev_task.end.lb), task.start.ub)
+        undo_stack.append((f'deleting {dropoff_task.name}', lambda: dropoff_task.delete_task()))
+        # undo_stack.append(lambda: self.resource.timeline.tasks.remove(dropoff_task))
         # self.resource.insert_task_to_timeline(dropoff_task, f'{self.resource.name}_presence', prev_task=pickup_task, generate_travel=True)
         # travel_duration = self.tds.travel_matrix[prev_task.locations[-1]][curr_task.locations[0]]
 
@@ -421,10 +407,7 @@ class Timeline:
         for task in self.tasks:
             # Find which capability is assigned to this timeline's resource
             cap_for_resource = "N/A"
-            for cap, res in task.assigned_resources.items():
-                if res == self.resource.name:
-                    cap_for_resource = cap
-                    break
+            # TODO Add resource capability here
 
             rows.append({
                 "resource": self.resource.name,
