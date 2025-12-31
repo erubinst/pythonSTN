@@ -5,7 +5,6 @@ from config import *
 from parse import *
 from utils import *
 from collections import deque
-import inspect
 
 
 def add_resources_to_tds(resources_df, tds_manager):

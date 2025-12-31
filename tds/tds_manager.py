@@ -11,6 +11,12 @@ class TDSManager:
         self.cz = Timepoint('zero', self, add_to_stn=False)
         self.travel_matrix = travel_matrix
 
+    
+    def sort_tasks_by_flexibility(self):
+        pass  # TODO: Ashna - implement sorting of tasks by flexibility
+        # return list of sorted tasks with task instance as elements
+        # call function in task.py to get flexibility for each task
+
     def sum_total_travel(self):
         total_travel_weight = sum(
             np.abs(data.get("weight", 0))

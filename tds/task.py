@@ -26,6 +26,19 @@ class Task:
         # register this task object with the manager under its name
         self.tds.add_task_to_manager(self)
 
+    def get_release_time(self):
+        # get edge weight with cz to start constraint type 'release_time'
+        return np.abs(self.start.ub_edge_weight(self.tds.cz, ('all', 'release_time')))
+
+    def get_due_date(self):
+        return np.abs(self.end.lb_edge_weight(self.tds.cz, ('all', 'due_date')))
+    
+    def get_duration(self):
+        return np.abs(self.start.ub_edge_weight(self.end, ('all', 'duration')))
+    
+    def get_task_flexibility(self):
+        pass # TODO: Ashna - return due date - release time - duration, use above methods
+
     def update_task_name(self, new_name):
         old_name = self.name
         self.tds.tasks[new_name.lower()] = self.tds.tasks.pop(old_name)
