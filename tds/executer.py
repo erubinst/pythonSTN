@@ -744,14 +744,18 @@ resources_df, tasks_df, travel_matrix_dict = load_resources_and_tasks(REQUEST_PA
 tds = TDSManager(travel_matrix_dict)
 add_resources_to_tds(resources_df, tds)
 add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
+# TODO: Ashna - call function to test
+# print(tds.sort_tasks_by_flexibility())
+
+
 # init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)
 # load_initial_timelines_to_tds(init_schedule, tds)
 # pd_tasks = add_pickup_dropoff(tds)
 # schedule_pd_tasks(tds, pd_tasks)
 # add_return_home_tasks(tds)
 # print(tds.sum_total_travel())
-dependent_tasks = schedule_independent_tasks(tds)
-for dep_task in dependent_tasks:
-    schedule_dependent_task(tds, dep_task)
-display_current_schedule(tds, EPOCH_DATE)
+# dependent_tasks = schedule_independent_tasks(tds)
+# for dep_task in dependent_tasks:
+    # schedule_dependent_task(tds, dep_task)
+# display_current_schedule(tds, EPOCH_DATE)
 
