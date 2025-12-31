@@ -20,9 +20,26 @@ class TDSManager:
                 and len(key) > 1
                 and key[1] == "travel"
                 and not np.isinf(data.get("weight", 0))
+                and key[0] in self.resources
+                and 'traveler' in self.resources[key[0]].capabilities
             )
         )
         return total_travel_weight
+    
+    def sum_total_ride_time(self):
+        total_ride_time = 0
+        for resource in self.resources.values():
+            if 'traveler' not in resource.capabilities:
+                pickup_task = None
+                for task in resource.timeline.tasks:
+                    if task.name.startswith('pickup_from_'):
+                        pickup_task = task
+                    elif task.name.startswith('dropoff_at_') and pickup_task is not None:
+                        ride_time = task.end.ub - np.abs(pickup_task.start.lb)
+                        total_ride_time += ride_time
+                        pickup_task = None
+        return total_ride_time
+                    
 
     def add_task_to_manager(self, task):
         """Register a task with the manager."""

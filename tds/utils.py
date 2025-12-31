@@ -14,7 +14,6 @@ def execute_undo_functions(undo_info):
         undo_fn_info = undo_info.pop()
         if isinstance(undo_fn_info, tuple):
             name, undo_fn = undo_fn_info
-            # print(f"Executing: {name}")
             undo_fn()
         else:
             undo_fn_info()

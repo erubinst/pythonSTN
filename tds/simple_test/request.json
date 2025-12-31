@@ -33,7 +33,6 @@
             "location": "AnnieBrotherHouse",
             "capabilities": [
                 "anniebrother_presence",
-                "traveler",
                 "transport"
             ]
         },
@@ -47,7 +46,6 @@
                 "debbie_prescription",
                 "tom_prescription",
                 "jane_prescription",
-                "traveler",
                 "handywork",
                 "transport"
             ]
@@ -266,10 +264,27 @@
                     "taskName": "walmart_shopping",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "jane_presence",
                         "annie_presence"
                     ],
                     "duration": 45,
+                    "start-location": "GroceryStore2",
+                    "end-location": "GroceryStore2",
+                    "explicit_transport_task": false
+                }
+            ]
+        },
+        {
+            "name": "GroceryRun",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "grocery_run",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "tom_presence"
+                    ],
+                    "duration": 40,
                     "start-location": "GroceryStore2",
                     "end-location": "GroceryStore2",
                     "explicit_transport_task": false
@@ -401,12 +416,24 @@
         {
             "name": "Walmart",
             "quantity": 1,
-            "earlieststartdate": "2025-05-20T11:00",
+            "earlieststartdate": "2025-05-20T08:00",
             "duedate": "2025-05-20T15:00",
             "start-location": "DebbieHouse",
             "end-location": "DebbieHouse",
             "tasks": [
                 "Walmart"
+            ],
+            "optional": false
+        },
+        {
+            "name": "GroceryRun",
+            "quantity": 1,
+            "earlieststartdate": "2025-05-20T08:00",
+            "duedate": "2025-05-20T15:00",
+            "start-location": "DebbieHouse",
+            "end-location": "DebbieHouse",
+            "tasks": [
+                "GroceryRun"
             ],
             "optional": false
         }
