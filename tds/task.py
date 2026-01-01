@@ -1,5 +1,5 @@
 import numpy as np
-from timepoint import Timepoint
+from .timepoint import Timepoint
 
 class Task:
     def __init__(self, 

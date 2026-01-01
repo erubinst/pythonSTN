@@ -1,5 +1,5 @@
-from timeline import Timeline
-from config import *
+from .timeline import Timeline
+from .config import *
 import pandas as pd
 import numpy as np
 

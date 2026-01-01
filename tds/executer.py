@@ -1,9 +1,9 @@
-from resource import Resource
-from task import Task
-from tds_manager import TDSManager
-from config import *
-from parse import *
-from utils import *
+from tds.resource import Resource
+from tds.task import Task
+from tds.tds_manager import TDSManager
+from tds.config import *
+from tds.parse import *
+from tds.utils import *
 from collections import deque
 import inspect
 
@@ -52,24 +52,24 @@ def add_tasks_to_tds(tasks_df, tds_manager):
         task.add_duration_constraint(row.get('duration'))
 
 # TODO: implement order constraints loading, order_constraints df return from function created in parse.py
-# def add_order_constraints_to_tds(order_constraints_df, tds_manager):
-#     """
-#     Add order constraints from DataFrame to TDS manager.
-#     Parameters:
-#         order_constraints_df (pd.DataFrame): columns = ['preceding_task', 'succeeding_task']
-#         tds_manager: initialized TDS manager object
-#     """
-#     for _, row in order_constraints_df.iterrows():
-#         preceding_task_name = row['preceding_task']
-#         succeeding_task_name = row['succeeding_task']
-#         preceding_task = tds_manager.tasks.get(preceding_task_name)
-#         succeeding_task = tds_manager.tasks.get(succeeding_task_name)
-#         if not preceding_task or not succeeding_task:
-#             print(f"Warning: One of the tasks '{preceding_task_name}' or '{succeeding_task_name}' not found; skipping constraint")
-#             continue
-#         # Add constraint to TDS manager's STN
-#         task.add_constraint( -- take a look at this function 
-# one of the parameters is constraint_type - ("all", "sequence")
+def add_order_constraints_to_tds(order_constraints_df, tds_manager):
+    """
+    Add order constraints from DataFrame to TDS manager.
+    Parameters:
+        order_constraints_df (pd.DataFrame): columns = ['preceding_task', 'succeeding_task']
+        tds_manager: initialized TDS manager object
+    """
+    for _, row in order_constraints_df.iterrows():
+        preceding_task_name = row['preceding_task']
+        succeeding_task_name = row['succeeding_task']
+        preceding_task = tds_manager.tasks.get(preceding_task_name)
+        succeeding_task = tds_manager.tasks.get(succeeding_task_name)
+        if not preceding_task or not succeeding_task:
+            print(f"Warning: One of the tasks '{preceding_task_name}' or '{succeeding_task_name}' not found; skipping constraint")
+            continue
+        # Add constraint to TDS manager's STN
+        preceding_task.constrain_before(succeeding_task, ("sequence", "order"))
+#one of the parameters is constraint_type - ("all", "sequence")
 
 # ---------------------------------------------------------
 # Routine for starting from given schedule like CP model
@@ -262,6 +262,7 @@ def backtrack_capability_assignments_with_transport(tds, task, capabilities, cap
             'transport_assignment': list(transport_assignment),
             'total_travel': total_travel
         })
+        return
         
         # Undo transport assignments (pop from stack)
         temp_transport = deque()
@@ -417,13 +418,21 @@ def backtrack_capability_assignments_with_transport(tds, task, capabilities, cap
                             if need_before_transport and before_option:
                                 before_resource = before_option['resource']
                                 
+                                if before_option['pickup_prior_task'] not in before_resource.timeline.tasks:
+                                    continue
+
                                 before_pickup_undo = before_resource.timeline.try_slot(
                                     pickup1_task, before_option['pickup_prior_task'], 'transport'
                                 )
                                 
                                 if not before_pickup_undo:
                                     continue
-                                    
+                                
+                                if before_option['pickup_prior_task'] not in before_resource.timeline.tasks:
+                                    if before_pickup_undo:
+                                        execute_undo_functions(before_pickup_undo)
+                                    continue
+
                                 before_dropoff_undo = before_resource.timeline.try_slot(
                                     dropoff1_task, before_option['dropoff_prior_task'], 'transport'
                                 )
@@ -439,13 +448,19 @@ def backtrack_capability_assignments_with_transport(tds, task, capabilities, cap
                                 if need_after_transport and after_option:
                                     after_resource = after_option['resource']
                                     
+                                    if after_option['pickup_prior_task'] not in after_resource.timeline.tasks:
+                                        continue
                                     after_pickup_undo = after_resource.timeline.try_slot(
                                         pickup2_task, after_option['pickup_prior_task'], 'transport'
                                     )
                                     
                                     if not after_pickup_undo:
                                         continue
-                                        
+                                    
+                                    if after_option['dropoff_prior_task'] not in after_resource.timeline.tasks:
+                                        if after_pickup_undo:
+                                            execute_undo_functions(after_pickup_undo)
+                                        continue
                                     after_dropoff_undo = after_resource.timeline.try_slot(
                                         dropoff2_task, after_option['dropoff_prior_task'], 'transport'
                                     )
@@ -731,7 +746,7 @@ def add_return_home_tasks(tds):
                 resource.timeline.add_return_stops(task)
 
 
-resources_df, tasks_df, travel_matrix_dict = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH)
+resources_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH)
 tds = TDSManager(travel_matrix_dict)
 add_resources_to_tds(resources_df, tds)
 add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system

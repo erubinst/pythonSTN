@@ -1,5 +1,5 @@
 from stn.stn import STN
-from timepoint import Timepoint
+from .timepoint import Timepoint
 import pandas as pd
 import numpy as np
 

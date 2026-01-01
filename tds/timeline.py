@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
-from task import Task
-from config import MIN_HOME_TIME
+from .task import Task
+from .config import MIN_HOME_TIME
 from queue import deque
-from utils import execute_undo_functions
+from .utils import execute_undo_functions
 
 class Timeline:
     def __init__(self, resource, tds_manager):
