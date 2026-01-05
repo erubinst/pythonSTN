@@ -756,6 +756,7 @@ add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
 # schedule_pd_tasks(tds, pd_tasks)
 # add_return_home_tasks(tds)
 # print(tds.sum_total_travel())
+print("sorted by flexibility",tds.sort_tasks_by_flexibility())
 dependent_tasks = schedule_independent_tasks(tds)
 for dep_task in dependent_tasks:
     schedule_dependent_task(tds, dep_task)
