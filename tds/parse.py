@@ -1,7 +1,7 @@
 # File to parse through request and initial schedule files
 import json
 import pandas as pd
-from utils import *
+from .utils import *
 
 
 def load_request_data(request_path):
@@ -12,12 +12,19 @@ def load_request_data(request_path):
     templates = {t["name"]: t for t in request_data.get("templates", [])}
     orders = {o["name"]: o for o in request_data.get("orders", [])}
     resources = {r["name"]: r for r in request_data.get("resourceTypes", [])}
+    constraints = request_data.get("order-constraints", [])
+    order_constraints = []
+    for constraint in constraints:
+        src = constraint.get("source")
+        dst = constraint.get("destination")
+
+        order_constraints.append((src,dst))
     # load in order constraints
     return {
         "templates": templates,
         "orders": orders,
         "resources": resources,
-        "order_constraints": request_data.get("order-constraints", []) # adjust this to the format you want for order constarints
+        "order_constraints": order_constraints # adjust this to the format you want for order constarints
     }
 
 
@@ -92,5 +99,6 @@ def load_resources_and_tasks(request_path, travel_matrix_path, cz_datetime_str="
     resources_df = load_resources_df(request_data["resources"])
     tasks_df = load_tasks_df(request_data["templates"], request_data["orders"], cz_datetime)
     travel_matrix_dict = load_travel_matrix(travel_matrix_path)
+    order_constraints = request_data["order_constraints"]
 
-    return resources_df, tasks_df, travel_matrix_dict #TODO: return order constraints as well
+    return resources_df, tasks_df, travel_matrix_dict,order_constraints#TODO: return order constraints as well

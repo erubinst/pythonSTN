@@ -1,5 +1,5 @@
 import numpy as np
-from timepoint import Timepoint
+from .timepoint import Timepoint
 
 class Task:
     def __init__(self, 
@@ -37,7 +37,7 @@ class Task:
         return np.abs(self.start.ub_edge_weight(self.end, ('all', 'duration')))
     
     def get_task_flexibility(self):
-        pass # TODO: Ashna - return due date - release time - duration, use above methods
+        return self.get_due_date() - self.get_release_time() - self.get_duration()
 
     def update_task_name(self, new_name):
         old_name = self.name

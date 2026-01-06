@@ -1,5 +1,5 @@
 from stn.stn import STN
-from timepoint import Timepoint
+from .timepoint import Timepoint
 import pandas as pd
 import numpy as np
 
@@ -13,9 +13,20 @@ class TDSManager:
 
     
     def sort_tasks_by_flexibility(self):
-        pass  # TODO: Ashna - implement sorting of tasks by flexibility
+        # TODO: Ashna - implement sorting of tasks by flexibility
         # return list of sorted tasks with task instance as elements
         # call function in task.py to get flexibility for each task
+        flex_list = []
+        for task in self.tasks.values():
+            if task.name.endswith('_header') or task.name.endswith('_footer'):
+                    continue
+            flex_list.append((task.get_task_flexibility(),task.name,task))
+        flex_list.sort()
+        sorted_tasks = []
+        for _,_,task in flex_list:
+            sorted_tasks.append(task)
+        return sorted_tasks
+
 
     def sum_total_travel(self):
         total_travel_weight = sum(
