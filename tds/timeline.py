@@ -63,8 +63,10 @@ class Timeline:
         self.capability_assigned.pop(task_idx)
 
     def print_tasks(self):
+        task_names = []
         for task in self.tasks:
-            print(task.name)
+            task_names.append(task.name)
+        print(task_names)
 
     def list_task_names(self):
         task_lst = []

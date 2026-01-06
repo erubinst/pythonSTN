@@ -5,7 +5,6 @@ from tds.config import *
 from tds.parse import *
 from tds.utils import *
 from collections import deque
-import inspect
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -239,6 +238,8 @@ def search_through_capability_assignments_with_transport(tds, task):
     transport_assignment = deque()  # Store pickup/dropoff assignments
 
     capabilities_list = list(task.capabilities)
+    # sort capabilities backwards alphabetically
+    capabilities_list.sort(reverse=True)
     backtrack_capability_assignments_with_transport(
         tds, task, capabilities_list, 0, current_assignment, undo_stacks, 
         transport_assignment, all_assignments
@@ -247,314 +248,260 @@ def search_through_capability_assignments_with_transport(tds, task):
     return all_assignments
 
 
-def backtrack_capability_assignments_with_transport(tds, task, capabilities, capability_idx, 
-                                                    current_assignment, undo_stacks, 
-                                                    transport_assignment, all_assignments):
-    """
-    Recursively try all combinations of resource and transport assignments.
-    """
-    # Base case: all capabilities have been assigned
+def backtrack_capability_assignments_with_transport(
+    tds, task, capabilities, capability_idx,
+    current_assignment, undo_stacks,
+    transport_assignment, all_assignments
+):
     if capability_idx == len(capabilities):
-        total_travel = tds.sum_total_travel()
-        # Found a valid complete assignment - store with travel cost
         all_assignments.append({
             'capability_assignment': list(current_assignment),
             'transport_assignment': list(transport_assignment),
-            'total_travel': total_travel
+            'total_travel': tds.sum_total_travel(),
+            'total_ride_time': tds.sum_total_ride_time()
         })
-        return
-        
-        # Undo transport assignments (pop from stack)
-        temp_transport = deque()
-        while transport_assignment:
-            transport_info = transport_assignment.pop()
-            temp_transport.append(transport_info)
-            # Undo after-task transport (pickup2/dropoff2)
-            if transport_info['after_dropoff_undo']:
-                execute_undo_functions(transport_info['after_dropoff_undo'])
-            if transport_info['after_pickup_undo']:
-                execute_undo_functions(transport_info['after_pickup_undo'])
-            # Undo before-task transport (pickup1/dropoff1)
-            if transport_info['before_dropoff_undo']:
-                execute_undo_functions(transport_info['before_dropoff_undo'])
-            if transport_info['before_pickup_undo']:
-                execute_undo_functions(transport_info['before_pickup_undo'])
-            # DO NOT restore removed transport here
-        
-        # Restore transport_assignment for further exploration
-        while temp_transport:
-            transport_assignment.append(temp_transport.pop())
-        
-        # Undo capability assignments
-        temp_assignment = deque()
-        temp_undo = deque()
-        while current_assignment:
-            assignment = current_assignment.pop()
-            undo_stack = undo_stacks.pop()
-            temp_assignment.append(assignment)
-            temp_undo.append(undo_stack)
-            resource = assignment[0]
-            execute_undo_functions(undo_stack)
-        
-        # Restore for further exploration
-        while temp_assignment:
-            current_assignment.append(temp_assignment.pop())
-            undo_stacks.append(temp_undo.pop())
-        
-        return
-    
-    # Try assigning current capability to each compatible resource
+        return True
+
+    found_any = False
     capability = capabilities[capability_idx]
     new_task_lst = task.start.ub
-    
+
     for resource in tds.resources.values():
         if capability not in resource.capabilities:
             continue
-        
-        # For non-traveler resources, build list of non-transport tasks only
+
         if 'traveler' not in resource.capabilities:
-            non_transport_tasks = [t for t in resource.timeline.tasks 
-                                  if not t.name.startswith('pickup_from_') 
-                                  and not t.name.startswith('dropoff_at_')]
-            tasks_to_iterate = non_transport_tasks
+            tasks_to_iterate = [
+                t for t in resource.timeline.tasks
+                if not t.name.startswith('pickup_from_')
+                and not t.name.startswith('dropoff_at_')
+            ]
         else:
             tasks_to_iterate = resource.timeline.tasks
-        
-        prior_task_list_idx = 0
-        
-        while prior_task_list_idx < len(tasks_to_iterate):
-            prior_task = tasks_to_iterate[prior_task_list_idx]
-            
+
+        for i, prior_task in enumerate(tasks_to_iterate):
             if prior_task.name.endswith('_footer'):
                 break
-            
-            prior_eft = prior_task.end.lb
-            
-            if prior_eft > new_task_lst:
+            if prior_task.end.lb > new_task_lst:
                 break
-            
-            # CRITICAL: For non-traveler resources, remove existing transport BEFORE trying insertion
+
             removal_undo_stack = None
             if 'traveler' not in resource.capabilities:
-                # Get the next non-transport task
-                next_task = tasks_to_iterate[prior_task_list_idx + 1] if prior_task_list_idx + 1 < len(tasks_to_iterate) else None
-                
+                next_task = tasks_to_iterate[i + 1] if i + 1 < len(tasks_to_iterate) else None
                 if next_task:
-                    # Remove existing pickup/dropoffs between prior_task and next_task
-                    # This clears space for trying to insert the new task
                     removal_undo_stack = remove_existing_transport_between(
                         resource.timeline, prior_task, next_task
                     )
-            
+
             undo_stack = resource.timeline.try_slot(task, prior_task, capability)
-            
-            if undo_stack:
-                current_assignment.append((resource, prior_task, capability))
-                undo_stacks.append(undo_stack)
-                
-                # Check if this resource needs transport (doesn't have 'traveler' capability)
-                if 'traveler' not in resource.capabilities:
-                    # Get the next non-transport task after our newly inserted task
-                    current_task_timeline_idx = resource.timeline.tasks.index(task)
-                    next_task = None
-                    for i in range(current_task_timeline_idx + 1, len(resource.timeline.tasks)):
-                        t = resource.timeline.tasks[i]
-                        if not t.name.startswith('pickup_from_') and not t.name.startswith('dropoff_at_'):
-                            next_task = t
-                            break
-                    
-                    if next_task is None:
-                        # Can't proceed without a valid next task
-                        current_assignment.pop()
-                        popped_stack = undo_stacks.pop()
-                        execute_undo_functions(popped_stack)
-                        # Restore the removed transport AFTER undoing task insertion
-                        if removal_undo_stack:
-                            restore_removed_transport(removal_undo_stack)
-                        prior_task_list_idx += 1
-                        continue
-
-                    prior_task_location = prior_task.locations[-1]
-                    task_start_location = task.locations[0]
-                    need_before_transport = (prior_task_location != task_start_location)
-
-                    task_end_location = task.locations[-1]
-                    next_task_location = next_task.locations[0]
-                    need_after_transport = (task_end_location != next_task_location)
-                    
-                    if not need_after_transport and not need_before_transport:
-                        # No transport needed, just recurse directly
-                        backtrack_capability_assignments_with_transport(
-                            tds, task, capabilities, capability_idx + 1, 
-                            current_assignment, undo_stacks, 
-                            transport_assignment, all_assignments
-                        )
-                        # Backtrack
-                        current_assignment.pop()
-                        popped_stack = undo_stacks.pop()
-                        execute_undo_functions(popped_stack)
-                        if removal_undo_stack:
-                            restore_removed_transport(removal_undo_stack)
-                        prior_task_list_idx += 1
-                        continue
-                    
-                    # Generate NEW pickup/dropoff tasks for the new ordering
-                    pickup1_task, dropoff1_task, before_cleanup_undo = resource.timeline.generate_possible_pickup_dropoff(prior_task, task)
-                    pickup2_task, dropoff2_task, after_cleanup_undo = resource.timeline.generate_possible_pickup_dropoff(task, next_task)
-                    
-                    # Find all transport options (only for where needed)
-                    before_transport_options = find_transport_options(tds, pickup1_task, dropoff1_task) if need_before_transport else [None]
-                    after_transport_options = find_transport_options(tds, pickup2_task, dropoff2_task) if need_after_transport else [None]
-                    
-                    found_valid_transport = False
-
-                    
-                    if before_transport_options and after_transport_options:
-                        # Try all combinations of before and after transport
-                        for before_option in before_transport_options:
-                            before_pickup_undo = None
-                            before_dropoff_undo = None
-                            
-                            if need_before_transport and before_option:
-                                before_resource = before_option['resource']
-                                
-                                if before_option['pickup_prior_task'] not in before_resource.timeline.tasks:
-                                    continue
-
-                                before_pickup_undo = before_resource.timeline.try_slot(
-                                    pickup1_task, before_option['pickup_prior_task'], 'transport'
-                                )
-                                
-                                if not before_pickup_undo:
-                                    continue
-                                
-                                if before_option['pickup_prior_task'] not in before_resource.timeline.tasks:
-                                    if before_pickup_undo:
-                                        execute_undo_functions(before_pickup_undo)
-                                    continue
-
-                                before_dropoff_undo = before_resource.timeline.try_slot(
-                                    dropoff1_task, before_option['dropoff_prior_task'], 'transport'
-                                )
-                                
-                                if not before_dropoff_undo:
-                                    execute_undo_functions(before_pickup_undo)
-                                    continue
-                            
-                            for after_option in after_transport_options:
-                                after_pickup_undo = None
-                                after_dropoff_undo = None
-                                
-                                if need_after_transport and after_option:
-                                    after_resource = after_option['resource']
-                                    
-                                    if after_option['pickup_prior_task'] not in after_resource.timeline.tasks:
-                                        continue
-                                    after_pickup_undo = after_resource.timeline.try_slot(
-                                        pickup2_task, after_option['pickup_prior_task'], 'transport'
-                                    )
-                                    
-                                    if not after_pickup_undo:
-                                        continue
-                                    
-                                    if after_option['dropoff_prior_task'] not in after_resource.timeline.tasks:
-                                        if after_pickup_undo:
-                                            execute_undo_functions(after_pickup_undo)
-                                        continue
-                                    after_dropoff_undo = after_resource.timeline.try_slot(
-                                        dropoff2_task, after_option['dropoff_prior_task'], 'transport'
-                                    )
-                                    
-                                    if not after_dropoff_undo:
-                                        execute_undo_functions(after_pickup_undo)
-                                        continue
-                                
-                                found_valid_transport = True
-                                # Store everything including removal undo stack
-                                transport_assignment.append({
-                                    'before_resource': before_option['resource'] if (need_before_transport and before_option) else None,
-                                    'before_pickup_prior_task': before_option['pickup_prior_task'] if (need_before_transport and before_option) else None,
-                                    'before_dropoff_prior_task': before_option['dropoff_prior_task'] if (need_before_transport and before_option) else None,
-                                    'before_pickup_undo': before_pickup_undo,
-                                    'before_dropoff_undo': before_dropoff_undo,
-                                    'before_pickup_task': pickup1_task,
-                                    'before_dropoff_task': dropoff1_task,
-                                    'after_resource': after_option['resource'] if (need_after_transport and after_option) else None,
-                                    'after_pickup_prior_task': after_option['pickup_prior_task'] if (need_after_transport and after_option) else None,
-                                    'after_dropoff_prior_task': after_option['dropoff_prior_task'] if (need_after_transport and after_option) else None,
-                                    'after_pickup_undo': after_pickup_undo,
-                                    'after_dropoff_undo': after_dropoff_undo,
-                                    'after_pickup_task': pickup2_task,
-                                    'after_dropoff_task': dropoff2_task,
-                                    'removal_undo_stack': removal_undo_stack  # Store for restoration
-                                })
-                                
-                                # Recursively try next capability
-                                backtrack_capability_assignments_with_transport(
-                                    tds, task, capabilities, capability_idx + 1, 
-                                    current_assignment, undo_stacks, 
-                                    transport_assignment, all_assignments
-                                )
-                                
-                                # Backtrack transport assignment
-                                # Step 5: Undo new transport
-                                info = transport_assignment.pop()
-                                if info['after_dropoff_undo']:
-                                    execute_undo_functions(info['after_dropoff_undo'])
-                                if info['after_pickup_undo']:
-                                    execute_undo_functions(info['after_pickup_undo'])
-                                if info['before_dropoff_undo']:
-                                    execute_undo_functions(info['before_dropoff_undo'])
-                                if info['before_pickup_undo']:
-                                    execute_undo_functions(info['before_pickup_undo'])
-                                # Don't restore old transport yet - task is still in timeline
-                            
-                            # Clean up before transport if it was placed
-                            if before_dropoff_undo:
-                                execute_undo_functions(before_dropoff_undo)
-                            if before_pickup_undo:
-                                execute_undo_functions(before_pickup_undo)
-                    
-                    # Clean up the generated pickup/dropoff tasks
-                    execute_undo_functions(before_cleanup_undo)
-                    execute_undo_functions(after_cleanup_undo)
-                    
-                    # If no valid transport found, we need to undo and restore now
-                    if not found_valid_transport:
-                        # No valid transport - this slot doesn't work
-                        current_assignment.pop()
-                        popped_stack = undo_stacks.pop()
-                        execute_undo_functions(popped_stack)
-                        # NOW restore the removed transport (after undoing task)
-                        if removal_undo_stack:
-                            restore_removed_transport(removal_undo_stack)
-                        prior_task_list_idx += 1
-                        continue
-                    
-                else:
-                    # Resource has 'traveler' capability, no transport needed
-                    backtrack_capability_assignments_with_transport(
-                        tds, task, capabilities, capability_idx + 1, 
-                        current_assignment, undo_stacks, 
-                        transport_assignment, all_assignments
-                    )
-                
-                # Backtrack: remove this capability assignment
-                # Step 6: Undo task
-                current_assignment.pop()
-                popped_stack = undo_stacks.pop()
-                execute_undo_functions(popped_stack)
-                
-                # Step 7: Restore old transport (AFTER undoing task)
+            if not undo_stack:
                 if removal_undo_stack:
                     restore_removed_transport(removal_undo_stack)
+                continue
+
+            current_assignment.append((resource, prior_task, capability))
+            undo_stacks.append(undo_stack)
+
+            # ---- traveler: no transport ----
+            if 'traveler' in resource.capabilities:
+                found_any |= backtrack_capability_assignments_with_transport(
+                    tds, task, capabilities, capability_idx + 1,
+                    current_assignment, undo_stacks,
+                    transport_assignment, all_assignments
+                )
             else:
-                # Task didn't fit in this slot - restore the removed transport
-                if removal_undo_stack:
-                    restore_removed_transport(removal_undo_stack)
-            
-            # Move to next slot
-            prior_task_list_idx += 1
+                # ---- transport required ----
+                tl = resource.timeline.tasks
+                idx = tl.index(task)
+
+                next_task = None
+                for t in tl[idx + 1:]:
+                    if not t.name.startswith('pickup_from_') and not t.name.startswith('dropoff_at_'):
+                        next_task = t
+                        break
+                if not next_task:
+                    goto_cleanup = True
+                else:
+                    goto_cleanup = False
+
+                if not goto_cleanup:
+                    need_before = prior_task.locations[-1] != task.locations[0]
+                    need_after = task.locations[-1] != next_task.locations[0]
+
+                    pickup1, dropoff1, cleanup1 = resource.timeline.generate_possible_pickup_dropoff(prior_task, task)
+                    pickup2, dropoff2, cleanup2 = resource.timeline.generate_possible_pickup_dropoff(task, next_task)
+
+                    # First, try placing pickup/dropoff on resource's own timeline to check precedence feasibility
+                    resource_undo_stack = deque()
+                    if need_before:
+                        ru1 = resource.timeline.try_slot(pickup1, prior_task, f'{resource.name}_presence')
+                        if not ru1:
+                            if cleanup1:
+                                execute_undo_functions(cleanup1)
+                            if cleanup2:
+                                execute_undo_functions(cleanup2)
+                            continue
+                        resource_undo_stack.append(ru1)
+
+                        rd1 = resource.timeline.try_slot(dropoff1, pickup1, f'{resource.name}_presence')
+                        if not rd1:
+                            execute_undo_functions(ru1)
+                            if cleanup1:
+                                execute_undo_functions(cleanup1)
+                            if cleanup2:
+                                execute_undo_functions(cleanup2)
+                            continue
+                        resource_undo_stack.append(rd1)
+
+                    if need_after:
+                        ru2 = resource.timeline.try_slot(pickup2, task, f'{resource.name}_presence')
+                        if not ru2:
+                            for undo in reversed(resource_undo_stack):
+                                execute_undo_functions(undo)
+                            if cleanup1:
+                                execute_undo_functions(cleanup1)
+                            if cleanup2:
+                                execute_undo_functions(cleanup2)
+                            continue
+                        resource_undo_stack.append(ru2)
+
+                        rd2 = resource.timeline.try_slot(dropoff2, pickup2, f'{resource.name}_presence')
+                        if not rd2:
+                            for undo in reversed(resource_undo_stack):
+                                execute_undo_functions(undo)
+                            if cleanup1:
+                                execute_undo_functions(cleanup1)
+                            if cleanup2:
+                                execute_undo_functions(cleanup2)
+                            continue
+                        resource_undo_stack.append(rd2)
+
+                    # Now explore transporter options
+                    for before_resource in tds.resources.values():
+                        if need_before and 'traveler' not in before_resource.capabilities:
+                            continue
+                        if not need_before:
+                            before_resource = None
+
+                        for after_resource in tds.resources.values():
+                            if need_after and 'traveler' not in after_resource.capabilities:
+                                continue
+                            if not need_after:
+                                after_resource = None
+
+                            # try placing before transport
+                            if need_before:
+                                for p in before_resource.timeline.tasks:
+                                    if p.end.lb > pickup1.start.ub:
+                                        break
+                                    pu1 = before_resource.timeline.try_slot(pickup1, p, 'transport')
+                                    if not pu1:
+                                        continue
+
+                                    for q in before_resource.timeline.tasks[
+                                        before_resource.timeline.tasks.index(pickup1):
+                                    ]:
+                                        if q.end.lb > dropoff1.start.ub:
+                                            break
+                                        du1 = before_resource.timeline.try_slot(dropoff1, q, 'transport')
+                                        if not du1:
+                                            continue
+
+                                        # try after transport
+                                        if need_after:
+                                            for p2 in after_resource.timeline.tasks:
+                                                if p2.end.lb > pickup2.start.ub:
+                                                    break
+                                                pu2 = after_resource.timeline.try_slot(pickup2, p2, 'transport')
+                                                if not pu2:
+                                                    continue
+
+                                                for q2 in after_resource.timeline.tasks[
+                                                    after_resource.timeline.tasks.index(pickup2):
+                                                ]:
+                                                    if q2.end.lb > dropoff2.start.ub:
+                                                        break
+                                                    du2 = after_resource.timeline.try_slot(dropoff2, q2, 'transport')
+                                                    if not du2:
+                                                        continue
+
+                                                    transport_assignment.append({
+                                                        'before_resource': before_resource,
+                                                        'before_pickup_task': pickup1,
+                                                        'before_dropoff_task': dropoff1,
+                                                        'before_pickup_prior_task': p,
+                                                        'before_dropoff_prior_task': q,
+                                                        'before_pickup_undo': pu1,
+                                                        'before_dropoff_undo': du1,
+                                                        'after_resource': after_resource,
+                                                        'after_pickup_task': pickup2,
+                                                        'after_dropoff_task': dropoff2,
+                                                        'after_pickup_prior_task': p2,
+                                                        'after_dropoff_prior_task': q2,
+                                                        'after_pickup_undo': pu2,
+                                                        'after_dropoff_undo': du2,
+                                                        'removal_undo_stack': removal_undo_stack,
+                                                    })
+
+                                                    found_any |= backtrack_capability_assignments_with_transport(
+                                                        tds, task, capabilities, capability_idx + 1,
+                                                        current_assignment, undo_stacks,
+                                                        transport_assignment, all_assignments
+                                                    )
+
+                                                    transport_assignment.pop()
+                                                    execute_undo_functions(du2)
+
+                                                execute_undo_functions(pu2)
+
+                                        else:
+                                            transport_assignment.append({
+                                                'before_resource': before_resource,
+                                                'before_pickup_task': pickup1,
+                                                'before_dropoff_task': dropoff1,
+                                                'before_pickup_prior_task': p,
+                                                'before_dropoff_prior_task': q,
+                                                'before_pickup_undo': pu1,
+                                                'before_dropoff_undo': du1,
+                                                'after_resource': None,
+                                                'after_pickup_task': None,
+                                                'after_dropoff_task': None,
+                                                'after_pickup_prior_task': None,
+                                                'after_dropoff_prior_task': None,
+                                                'after_pickup_undo': None,
+                                                'after_dropoff_undo': None,
+                                                'removal_undo_stack': removal_undo_stack,
+                                            })
+
+                                            found_any |= backtrack_capability_assignments_with_transport(
+                                                tds, task, capabilities, capability_idx + 1,
+                                                current_assignment, undo_stacks,
+                                                transport_assignment, all_assignments
+                                            )
+
+                                            transport_assignment.pop()
+
+                                        execute_undo_functions(du1)
+                                    execute_undo_functions(pu1)
+
+                    # Clean up resource's timeline pickup/dropoff tasks
+                    for undo in reversed(resource_undo_stack):
+                        execute_undo_functions(undo)
+
+                    if cleanup1:
+                        execute_undo_functions(cleanup1)
+                    if cleanup2:
+                        execute_undo_functions(cleanup2)
+
+            execute_undo_functions(undo_stacks.pop())
+            current_assignment.pop()
+            if removal_undo_stack:
+                restore_removed_transport(removal_undo_stack)
+
+    return found_any
+
+
+
 
 
 def remove_existing_transport_between(timeline, prior_task, next_task, save_task=True):
@@ -584,7 +531,6 @@ def remove_existing_transport_between(timeline, prior_task, next_task, save_task
         for resource in timeline.tds.resources.values():
             resource_task_lst = resource.timeline.list_task_names()
             if removed_task.name in resource_task_lst:
-                print(f'found a match for {resource.name}')
                 task_idx = resource_task_lst.index(removed_task.name)
                 resource_task = resource.timeline.tasks[task_idx] # must save this
                 # Get the task that comes before this one
@@ -599,7 +545,6 @@ def remove_existing_transport_between(timeline, prior_task, next_task, save_task
         if save_task:
             # Remove from all timelines
             for resource, _ in task_positions:
-                print(f'temporarily removing {removed_task.name} from {resource.name}')
                 resource.remove_task_from_timeline(removed_task)
             
             original_name = removed_task.name
@@ -644,39 +589,72 @@ def restore_removed_transport(removal_undo_stack):
                 print(f"Warning: Could not find prior task for {task.name}")
 
 
-def find_transport_options(tds, pickup_task, dropoff_task):
-    """
-    Find all feasible transport options for pickup and dropoff tasks.
-    Returns list of options with transport resource and prior tasks for each.
-    """
-    options = []
-    
-    for resource in tds.resources.values():
-        if 'traveler' in resource.capabilities:
-            # Use existing map_feasible_slots_linked_tasks to find options
-            slots = resource.timeline.map_feasible_slots_linked_tasks(pickup_task, dropoff_task)
-            for slot in slots:
-                options.append({
-                    'resource': resource,
-                    'pickup_prior_task': slot['task1_prior_task'],
-                    'dropoff_prior_task': slot['task2_prior_task'],
-                    'total_travel': slot['total_travel']
-                })
-    
-    return options
 
 
 def schedule_dependent_task(tds, task):
     print(f'scheduling {task.name}')
     assignments = search_through_capability_assignments_with_transport(tds, task)
+    # deduplicate assignments
+    for i in range(len(assignments)-1, -1, -1):
+        for j in range(i-1, -1, -1):
+            if assignments[i]['capability_assignment'] == assignments[j]['capability_assignment'] and assignments[i]['transport_assignment'] == assignments[j]['transport_assignment']:
+                print(f'Deduplicating assignments for {task.name} at indices {i} and {j}')
+                assignments.pop(i)
+                break
+    # export assignments to file
+    assignments_file = f'assignments_{task.name}.txt'
+    with open(assignments_file, 'w') as f:
+        for assignment in assignments:
+            f.write(f'Assignment with total travel {assignment["total_travel"]}:\n')
+            f.write(f'Assignment with total ride time {assignment["total_ride_time"]}:\n')
+            f.write('Capability Assignments:\n')
+            for cap_assign in assignment['capability_assignment']:
+                resource = cap_assign[0]
+                prior_task = cap_assign[1]
+                capability = cap_assign[2]
+                f.write(f'  Resource: {resource.name}, Prior Task: {prior_task.name}, Capability: {capability}\n')
+            f.write('Transport Assignments:\n')
+            for transport_assign in assignment['transport_assignment']:
+                before_resource = transport_assign['before_resource']
+                before_pickup_task = transport_assign['before_pickup_task']
+                before_dropoff_task = transport_assign['before_dropoff_task']
+                before_pickup_prior_task = transport_assign['before_pickup_prior_task']
+                before_dropoff_prior_task = transport_assign['before_dropoff_prior_task']
+                f.write(f'  Before Resource: {before_resource.name}, Pickup Task: {before_pickup_task.name}, Dropoff Task: {before_dropoff_task.name}, '
+                        f'Pickup Prior Task: {before_pickup_prior_task.name}, Dropoff Prior Task: {before_dropoff_prior_task.name}\n')
+                after_resource = transport_assign['after_resource']
+                if after_resource is not None:
+                    after_pickup_task = transport_assign['after_pickup_task']
+                    after_dropoff_task = transport_assign['after_dropoff_task']
+                    after_pickup_prior_task = transport_assign['after_pickup_prior_task']
+                    after_dropoff_prior_task = transport_assign['after_dropoff_prior_task']
+                    f.write(f'  After Resource: {after_resource.name}, Pickup Task: {after_pickup_task.name}, Dropoff Task: {after_dropoff_task.name}, '
+                            f'Pickup Prior Task: {after_pickup_prior_task.name}, Dropoff Prior Task: {after_dropoff_prior_task.name}\n')
+            f.write('---\n')
+    # # check for duplicate assignments
+    # for i in range(len(assignments)):
+    #     for j in range(i + 1, len(assignments)):
+    #         if assignments[i]['capability_assignment'] == assignments[j]['capability_assignment'] and assignments[i]['transport_assignment'] == assignments[j]['transport_assignment']:
+    #             print(f'Warning: Duplicate assignments found for {task.name} at indices {i} and {j}')
+    # print number of minimal travel assignments
     if not assignments:
         print(f'No possible assignments for {task.name}')
     else:
-        assignment = min(assignments, key=lambda x: x['total_travel'])
+        min_travel = min(assignments, key=lambda x: x['total_travel'])
+        num_min_travel = sum(1 for a in assignments if a['total_travel'] == min_travel['total_travel'])
+        print(f'Found {num_min_travel} assignments with minimal travel {min_travel["total_travel"]} for {task.name}')
+
+        # Filter to assignments with minimal travel
+        min_travel_assignments = [a for a in assignments if a['total_travel'] == min_travel['total_travel']]
+
+        # Break ties by selecting minimal ride time
+        assignment = max(min_travel_assignments, key=lambda x: x['total_ride_time'])
+        print(f'Selected assignment with ride time {assignment["total_ride_time"]}')
         for capability_assignment in assignment['capability_assignment']:
             resource = capability_assignment[0]
             prior_task = capability_assignment[1]
             capability = capability_assignment[2]
+
             if 'traveler' not in resource.capabilities:
                 first_non_transport_task = resource.timeline.tasks[-1]
                 prior_task_index = resource.timeline.tasks.index(prior_task)
@@ -685,31 +663,47 @@ def schedule_dependent_task(tds, task):
                         first_non_transport_task = t_task
                         break
                 remove_existing_transport_between(resource.timeline, prior_task, first_non_transport_task, save_task=False)
+            print(f'Assigning {task.name} to {resource.name} after {prior_task.name}')
             resource.insert_task_to_timeline(task, capability, prior_task)
+            # If this resource needs transport, find and insert the associated transport tasks
             if 'traveler' not in resource.capabilities:
-                resource.timeline.add_pickup_dropoffs(task)
-                next_task = resource.timeline.tasks[resource.timeline.tasks.index(task)+1]
-                resource.timeline.add_pickup_dropoffs(next_task)
-        for transport_assignment in assignment['transport_assignment']:
-            before_resource = transport_assignment['before_resource']
-            before_pickup_task = transport_assignment['before_pickup_task']
-            before_dropoff_task = transport_assignment['before_dropoff_task']
-            before_pickup_prior_task = transport_assignment['before_pickup_prior_task']
-            before_dropoff_prior_task = transport_assignment['before_dropoff_prior_task']
+                # Find transport assignments for this capability
+                # The transport tasks are named: pickup_from_<prior_location>_<resource>
+                #                                dropoff_at_<task_name>_<resource>
+                for transport_assign in assignment['transport_assignment']:
+                    before_resource = transport_assign['before_resource']
+                    before_pickup_task = transport_assign['before_pickup_task']
+                    before_dropoff_task = transport_assign['before_dropoff_task']
 
-            print(f'Assigning transport task {before_pickup_task.name} to {before_resource.name} after {before_pickup_prior_task.name}')
-            before_resource.insert_task_to_timeline(before_pickup_task, 'transport', before_pickup_prior_task)
-            before_resource.insert_task_to_timeline(before_dropoff_task, 'transport', before_dropoff_prior_task)
+                    # Match by checking if the dropoff task name contains this task's name and resource
+                    # Example: dropoff_at_preparecakeingredients_annie
+                    if task.name.lower() in before_dropoff_task.name.lower() and resource.name.lower() in before_dropoff_task.name.lower():
+                        # Found the transport for this capability
+                        before_pickup_prior_task = transport_assign['before_pickup_prior_task']
+                        before_dropoff_prior_task = transport_assign['before_dropoff_prior_task']
+                        resource.timeline.add_pickup_dropoffs(task)
+                        next_task = resource.timeline.tasks[resource.timeline.tasks.index(task)+1]
+                        resource.timeline.add_pickup_dropoffs(next_task)
 
-            after_resource = transport_assignment['after_resource']
-            after_pickup_task = transport_assignment['after_pickup_task']
-            after_dropoff_task = transport_assignment['after_dropoff_task']
-            after_pickup_prior_task = transport_assignment['after_pickup_prior_task']
-            after_dropoff_prior_task = transport_assignment['after_dropoff_prior_task']
-            if after_resource is not None:
-                print(f'Assigning transport task {after_pickup_task} to {after_resource} after {after_pickup_prior_task}')
-                after_resource.insert_task_to_timeline(after_pickup_task, 'transport', after_pickup_prior_task)
-                after_resource.insert_task_to_timeline(after_dropoff_task, 'transport', after_dropoff_prior_task)
+                        print(f'Assigning transport task {before_pickup_task.name} to {before_resource.name} after {before_pickup_prior_task.name}')
+                        before_resource.insert_task_to_timeline(before_pickup_task, 'transport', before_pickup_prior_task)
+
+                        print(f'Assigning transport task {before_dropoff_task.name} to {before_resource.name} after {before_dropoff_prior_task.name}')
+                        before_resource.insert_task_to_timeline(before_dropoff_task, 'transport', before_dropoff_prior_task)
+
+                        # Handle "after" transport if it exists (transport after this task completes)
+                        after_resource = transport_assign['after_resource']
+                        if after_resource is not None:
+                            after_pickup_task = transport_assign['after_pickup_task']
+                            after_dropoff_task = transport_assign['after_dropoff_task']
+                            after_pickup_prior_task = transport_assign['after_pickup_prior_task']
+                            after_dropoff_prior_task = transport_assign['after_dropoff_prior_task']
+
+                            print(f'Assigning transport task {after_pickup_task.name} to {after_resource.name} after {after_pickup_prior_task.name}')
+                            after_resource.insert_task_to_timeline(after_pickup_task, 'transport', after_pickup_prior_task)
+                            after_resource.insert_task_to_timeline(after_dropoff_task, 'transport', after_dropoff_prior_task)
+
+                        break  # Found and inserted transport for this capability, move to next
 
 
 def schedule_pd_tasks(tds, pd_tasks):
@@ -750,15 +744,16 @@ resources_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_a
 tds = TDSManager(travel_matrix_dict)
 add_resources_to_tds(resources_df, tds)
 add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
+
+
 # init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)
 # load_initial_timelines_to_tds(init_schedule, tds)
 # pd_tasks = add_pickup_dropoff(tds)
 # schedule_pd_tasks(tds, pd_tasks)
 # add_return_home_tasks(tds)
 # print(tds.sum_total_travel())
-print("sorted by flexibility",tds.sort_tasks_by_flexibility())
-dependent_tasks = schedule_independent_tasks(tds)
-for dep_task in dependent_tasks:
-    schedule_dependent_task(tds, dep_task)
-display_current_schedule(tds, EPOCH_DATE)
+# dependent_tasks = schedule_independent_tasks(tds)
+# for dep_task in dependent_tasks:
+    # schedule_dependent_task(tds, dep_task)
+# display_current_schedule(tds, EPOCH_DATE)
 

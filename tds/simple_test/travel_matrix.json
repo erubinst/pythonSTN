@@ -7,7 +7,7 @@
         "SeniorCenter": 20,
         "DoctorOffice": 30,
         "GroceryStore2": 35,
-        "Downtown": 30,
+        "Downtown": 5,
         "AnnieBrotherHouse": 15,
         "AnnieSonHouse": 20,
         "Pharmacy": 40
@@ -91,7 +91,7 @@
         "Pharmacy": 7
     },
     "Downtown": {
-        "AnnieHouse": 30,
+        "AnnieHouse": 5,
         "DebbieHouse": 15,
         "DentistOffice": 35,
         "GroceryStore1": 35,

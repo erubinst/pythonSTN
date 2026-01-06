@@ -38,7 +38,6 @@ class Task:
     
     def get_task_flexibility(self):
         return self.get_due_date() - self.get_release_time() - self.get_duration()
-        # TODO: Ashna - return due date - release time - duration, use above methods
 
     def update_task_name(self, new_name):
         old_name = self.name
