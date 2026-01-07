@@ -12,12 +12,11 @@ class TDSManager:
         self.travel_matrix = travel_matrix
 
     
-    def sort_tasks_by_flexibility(self):
-        # TODO: Ashna - implement sorting of tasks by flexibility
-        # return list of sorted tasks with task instance as elements
-        # call function in task.py to get flexibility for each task
+    def sort_tasks_by_flexibility(self, task_lst=None):
+        if task_lst is None:
+            task_lst = self.tasks.values()
         flex_list = []
-        for task in self.tasks.values():
+        for task in task_lst:
             if task.name.endswith('_header') or task.name.endswith('_footer'):
                     continue
             flex_list.append((task.get_task_flexibility(),task.name,task))
@@ -52,7 +51,8 @@ class TDSManager:
                     if task.name.startswith('pickup_from_'):
                         pickup_task = task
                     elif task.name.startswith('dropoff_at_') and pickup_task is not None:
-                        ride_time = task.end.ub - np.abs(pickup_task.start.lb)
+                        ride_time = np.abs(task.end.lb) - np.abs(pickup_task.start.lb)
+                        # print(f'Ride time for {pickup_task.name} is {ride_time}')
                         total_ride_time += ride_time
                         pickup_task = None
         return total_ride_time

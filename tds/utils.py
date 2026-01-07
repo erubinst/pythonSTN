@@ -9,6 +9,7 @@ def minutes_since_cz(timestamp_str, cz_datetime):
     delta = dt - cz_datetime
     return int(delta.total_seconds() / 60)
 
+
 def execute_undo_functions(undo_info):
     while undo_info: # pop in LIFO order
         undo_fn_info = undo_info.pop()

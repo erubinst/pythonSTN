@@ -5,13 +5,20 @@ class Task:
     def __init__(self, 
                  name, 
                  capabilities, 
-                 tds_manager, 
+                 tds_manager,
                  order=None, 
                  template=None, 
                  locations=[]):
         """
         Create a Task and its start/end timepoints.
         """
+        #TODO: Ashna - add task type to the task class params above 
+        # and assign below
+        # you can set a default value above to "NA" so that we don't have to update 
+        # all the task instantiation calls for the filler tasks like header,footer tasks
+        # but you will need to update the task calls in executer.py to have the task types from
+        # the request.json
+        
         self.name = name.lower()
         self.capabilities = {c.lower() for c in capabilities}
         self.tds = tds_manager

@@ -19,7 +19,7 @@ def load_request_data(request_path):
         dst = constraint.get("destination")
 
         order_constraints.append((src,dst))
-    # load in order constraints
+    
     return {
         "templates": templates,
         "orders": orders,
@@ -73,6 +73,9 @@ def load_tasks_df(templates_dict, orders_dict, cz_datetime):
         if not template:
             continue
         subtask = template["subtasks"][0]  # assume one subtask per template
+        # TODO: Ashna - add in "task_type" to the df here 
+        # it's similar to duration so the value would be subtask.get("task_type", "NA") if 
+        # you use "NA" as your default although it should always be filled in the request.json
         rows.append({
             "task_name": order_name,
             "required_capabilities": ", ".join(subtask.get("requiredCapabilities", [])),
@@ -95,10 +98,9 @@ def load_resources_and_tasks(request_path, travel_matrix_path, cz_datetime_str="
     cz_datetime = datetime.fromisoformat(cz_datetime_str)
     request_data = load_request_data(request_path)
 
-    # TODO: add order constraints 
     resources_df = load_resources_df(request_data["resources"])
     tasks_df = load_tasks_df(request_data["templates"], request_data["orders"], cz_datetime)
     travel_matrix_dict = load_travel_matrix(travel_matrix_path)
     order_constraints = request_data["order_constraints"]
 
-    return resources_df, tasks_df, travel_matrix_dict,order_constraints#TODO: return order constraints as well
+    return resources_df, tasks_df, travel_matrix_dict,order_constraints

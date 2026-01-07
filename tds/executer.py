@@ -31,6 +31,8 @@ def add_tasks_to_tds(tasks_df, tds_manager):
         tasks_df (pd.DataFrame): columns = ['task_name', 'required_capabilities', 'est', 'lft', 'duration']
         tds_manager: initialized TDS manager object
     """
+    # TODO: Ashna - after adding task type to the df in parse.py and to the task class as a param
+    # add to the task instantiation here and set with row['task_type']
     for _, row in tasks_df.iterrows():
         name = row["task_name"]
         capabilities = [c.strip() for c in row["required_capabilities"].split(",")] if row["required_capabilities"] else []
@@ -50,7 +52,6 @@ def add_tasks_to_tds(tasks_df, tds_manager):
         task.add_time_window_constraints(row.get('est'), row.get('lft'))
         task.add_duration_constraint(row.get('duration'))
 
-# TODO: implement order constraints loading, order_constraints df return from function created in parse.py
 def add_order_constraints_to_tds(order_constraints_df, tds_manager):
     """
     Add order constraints from DataFrame to TDS manager.
@@ -67,7 +68,7 @@ def add_order_constraints_to_tds(order_constraints_df, tds_manager):
             print(f"Warning: One of the tasks '{preceding_task_name}' or '{succeeding_task_name}' not found; skipping constraint")
             continue
         # Add constraint to TDS manager's STN
-        preceding_task.constrain_before(succeeding_task, ("sequence", "order"))
+        preceding_task.constrain_before(succeeding_task, ("all", "sequence"))
 #one of the parameters is constraint_type - ("all", "sequence")
 
 # ---------------------------------------------------------
@@ -124,9 +125,8 @@ def schedule_independent_tasks(tds):
         if 'traveler' in resource.capabilities:
             driver_capabilities.update(resource.capabilities)
     dependent_tasks = []
-    for task in tds.tasks.values():
-        if task.name.endswith('_header') or task.name.endswith('_footer'):
-            continue
+    sorted_tasks = tds.sort_tasks_by_flexibility()
+    for task in sorted_tasks:
         has_missing_capability = False
         for cap in task.capabilities:
             if cap not in driver_capabilities:
@@ -254,6 +254,7 @@ def backtrack_capability_assignments_with_transport(
     transport_assignment, all_assignments
 ):
     if capability_idx == len(capabilities):
+        print(f'Grabbing total ride time for assignment with total travel {tds.sum_total_travel()}')
         all_assignments.append({
             'capability_assignment': list(current_assignment),
             'transport_assignment': list(transport_assignment),
@@ -648,7 +649,7 @@ def schedule_dependent_task(tds, task):
         min_travel_assignments = [a for a in assignments if a['total_travel'] == min_travel['total_travel']]
 
         # Break ties by selecting minimal ride time
-        assignment = max(min_travel_assignments, key=lambda x: x['total_ride_time'])
+        assignment = min(min_travel_assignments, key=lambda x: x['total_ride_time'])
         print(f'Selected assignment with ride time {assignment["total_ride_time"]}')
         for capability_assignment in assignment['capability_assignment']:
             resource = capability_assignment[0]
@@ -744,6 +745,9 @@ resources_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_a
 tds = TDSManager(travel_matrix_dict)
 add_resources_to_tds(resources_df, tds)
 add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
+# TODO: Ashna - to test
+# for resource in tds.resources.values():
+    # print(resource.timeline.find_same_task_groups())
 
 
 # init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)
