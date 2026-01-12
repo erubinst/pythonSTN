@@ -1,7 +1,6 @@
 import numpy as np
 import networkx as nx
 from queue import deque
-import traceback
 
 
 class STN(nx.MultiDiGraph):

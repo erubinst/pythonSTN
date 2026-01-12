@@ -1,7 +1,6 @@
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
-import inspect
 
 def minutes_since_cz(timestamp_str, cz_datetime):
     """Convert ISO datetime string to minutes since cz."""
