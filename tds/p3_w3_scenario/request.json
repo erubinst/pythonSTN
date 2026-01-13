@@ -1,306 +1,313 @@
 {
     "resourceTypes": [
         {
-            "name": "Annie",
+            "name": "Goose",
             "type": "resusable",
-            "location": "AnnieHouse",
+            "location": "GooseHouse",
             "capabilities": [
-                "annie_presence",
-                "annie_shopping",
-                "cook",
-                "sewing"
-            ],
-            "downtimes": []
-        },
-        {
-            "name": "Debbie",
-            "type": "resusable",
-            "location": "DebbieHouse",
-            "capabilities": [
-                "debbie_presence",
-                "annie_prescription",
-                "debbie_prescription",
-                "tom_prescription",
-                "jane_prescription",
-                "handywork",
-                "volunteer",
+                "goose_presence",
+                "goose_shopping",
+                "goose_laundry",
                 "traveler",
                 "transport"
-            ],
-            "downtimes": []
+            ]
         },
         {
-            "name": "AnnieBrother",
+            "name": "GooseDaughter",
             "type": "resusable",
-            "location": "AnnieBrotherHouse",
+            "location": "GooseDaughterHouse",
             "capabilities": [
-                "anniebrother_presence",
-                "transport"
-            ],
-            "downtimes": []
+                "goosedaughter_presence",
+                "traveler"
+            ]
         },
         {
-            "name": "AnnieSon",
+            "name": "Denim",
             "type": "resusable",
-            "location": "AnnieSonHouse",
+            "location": "DenimHouse",
             "capabilities": [
-                "annieson_presence",
-                "annie_prescription",
-                "debbie_prescription",
-                "tom_prescription",
-                "jane_prescription",
-                "handywork",
-                "transport"
-            ],
-            "downtimes": []
+                "denim_presence",
+                "denim_housework",
+                "denim_shopping"
+            ]
         },
         {
-            "name": "Jane",
+            "name": "DenimBrother",
             "type": "resusable",
-            "location": "Downtown",
+            "location": "DenimBrotherHouse",
             "capabilities": [
-                "jane_presence"
-            ],
-            "downtimes": []
+                "denimbrother_presence",
+                "traveler",
+                "transport",
+                "denimbrother_shoppig"
+            ]
         },
         {
-            "name": "Tom",
+            "name": "DenimSon",
             "type": "resusable",
-            "location": "AnnieHouse",
+            "location": "DenimSonHouse",
             "capabilities": [
-                "tom_presence",
-                "tom_shopping",
-                "annie_prescription",
-                "debbie_prescription",
-                "tom_prescription",
-                "jane_prescription",
+                "denimson_presence",
                 "traveler",
                 "transport"
-            ],
-            "downtimes": [
-                {
-                    "start_time": "2025-05-20T20:00",
-                    "end_time": "2025-05-21T08:00",
-                    "duration": 540,
-                    "location": "AnnieHouse"
-                }
             ]
         }
     ],
     "templates": [
         {
-            "name": "ALunch",
+            "name": "Dinner",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "a_lunch",
+                    "taskName": "dinner_out",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "annie_presence"
+                        "denim_presence",
+                        "denimson_presence"
                     ],
-                    "duration": 60,
+                    "duration": 70,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "lunch"
+                    "task_type": "dinner"
                 }
             ]
         },
         {
-            "name": "DLunch",
+            "name": "HouseChores",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "d_lunch",
+                    "taskName": "house_chores",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "debbie_presence"
+                        "denim_housework"
                     ],
-                    "duration": 60,
+                    "duration": 160,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "lunch"
+                    "task_type": "housework"
                 }
             ]
         },
         {
-            "name": "PrepareCakeIngredients",
+            "name": "DGroceryShopping",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "prepare_cake_ingredients",
+                    "taskName": "d_grocery_shopping",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "annie_shopping"
+                        "denim_shopping"
+                    ],
+                    "duration":90,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "grocery_shopping"
+                }
+            ]
+        },
+        {
+            "name": "DBGroceryShopping",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "db_grocery_shopping",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "denimbrother_shopping"
+                    ],
+                    "duration":90,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "grocery_shopping"
+                }
+            ]
+        },
+        {
+            "name": "BrotherVisit",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "brother_social_visit",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "denim_presence",
+                        "denimbrother_presence"
                     ],
                     "duration": 120,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "cooking"
+                    "task_type": "social"
+                }
+            ]
+        },
+                {
+            "name": "SonVisit",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "son_social_visit",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "denim_presence",
+                        "denimson_presence"
+                    ],
+                    "duration": 200,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "social"
                 }
             ]
         },
         {
-            "name": "DentalAppointment",
+            "name": "BirthdayParty",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "dental_appointment",
+                    "taskName": "birthday_party",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "annie_presence"
+                        "denim_presence",
+                        "denimbrother_presence"
                     ],
-                    "duration": 30,
+                    "duration":120,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "medical_appointment"
+                    "task_type": "social"
                 }
             ]
         },
         {
-            "name": "TPrescriptionPickup",
+            "name": "DVintageVisit",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "tom_prescription_pickup",
+                    "taskName": "d_vintage_visit",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "tom_prescription"
-                    ],
-                    "duration": 5,
-                    "start-location": "@start-location",
-                    "end-location": "@end-location",
-                    "task_type": "prescription"
-                }
-            ]
-        },
-        {
-            "name": "APrescriptionPickup",
-            "type": "meets",
-            "requiredCapabilities": [],
-            "subtasks": [
-                {
-                    "taskName": "annie_prescription_pickup",
-                    "type": "executable",
-                    "requiredCapabilities": [
-                        "annie_prescription"
-                    ],
-                    "duration": 5,
-                    "start-location": "@start-location",
-                    "end-location": "@end-location",
-                    "task_type": "prescription"
-                }
-            ]
-        },
-        {
-            "name": "DPrescriptionPickup",
-            "type": "meets",
-            "requiredCapabilities": [],
-            "subtasks": [
-                {
-                    "taskName": "debbie_prescription_pickup",
-                    "type": "executable",
-                    "requiredCapabilities": [
-                        "debbie_prescription"
-                    ],
-                    "duration": 5,
-                    "start-location": "@start-location",
-                    "end-location": "@end-location",
-                    "task_type": "prescription"
-                }
-            ]
-        },
-                {
-            "name": "JPrescriptionPickup",
-            "type": "meets",
-            "requiredCapabilities": [],
-            "subtasks": [
-                {
-                    "taskName": "jane_prescription_pickup",
-                    "type": "executable",
-                    "requiredCapabilities": [
-                        "jane_prescription"
-                    ],
-                    "duration": 5,
-                    "start-location": "@start-location",
-                    "end-location": "@end-location",
-                    "task_type": "prescription"
-                }
-            ]
-        },
-        {
-            "name": "PCPACheckup",
-            "type": "meets",
-            "requiredCapabilities": [],
-            "subtasks": [
-                {
-                    "taskName": "pcpa_checkup",
-                    "type": "executable",
-                    "requiredCapabilities": [
-                        "debbie_presence"
+                        "denim_presence"
                     ],
                     "duration": 60,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "medical_appointment"
+                    "task_type": "social"
                 }
             ]
         },
         {
-            "name": "Volunteer",
+            "name": "GGroceryShopping",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "volunteer",
+                    "taskName": "g_grocery_shopping",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "volunteer"
+                        "goose_shopping"
                     ],
-                    "duration": 60,
+                    "duration": 90,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "volunteer"
+                    "task_type": "grocery_shopping"
                 }
             ]
         },
         {
-            "name": "groceries",
+            "name": "Laundry",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "groceries_shopping",
+                    "taskName": "laundry",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "annie_presence"
+                        "goose_laundry"
                     ],
-                    "duration": 45,
-                    "start-location": "GroceryStore2",
-                    "end-location": "GroceryStore2",
-                    "task_type": "shopping"
+                    "duration": 120,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "housework"
                 }
             ]
         },
         {
-            "name": "GroceryRun",
+            "name": "GVintageVisit",
             "type": "meets",
             "requiredCapabilities": [],
             "subtasks": [
                 {
-                    "taskName": "grocery_run",
+                    "taskName": "g_vintage_visit",
                     "type": "executable",
                     "requiredCapabilities": [
-                        "tom_presence"
+                        "goose_presence"
                     ],
-                    "duration": 40,
-                    "start-location": "GroceryStore2",
-                    "end-location": "GroceryStore2",
-                    "task_type": "shopping"
+                    "duration": 300,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "social"
+                }
+            ]
+        },
+        {
+            "name": "BowlingLeague",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "bowling_league",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "goose_presence"
+                    ],
+                    "duration": 120,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "social"
+                }
+            ]
+        },
+        {
+            "name": "GChurch",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "g_church",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "goose_presence"
+                    ],
+                    "duration": 90,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "church"
+                }
+            ]
+        },
+        {
+            "name": "DaughterLunch",
+            "type": "meets",
+            "requiredCapabilities": [],
+            "subtasks": [
+                {
+                    "taskName": "daughter_social_visit",
+                    "type": "executable",
+                    "requiredCapabilities": [
+                        "goose_presence",
+                        "goosedaughter_presence"
+                    ],
+                    "duration": 90,
+                    "start-location": "@start-location",
+                    "end-location": "@end-location",
+                    "task_type": "lunch"
                 }
             ]
         }

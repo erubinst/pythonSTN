@@ -379,13 +379,13 @@ def backtrack_capability_assignments_with_transport(
 
                     # Now explore transporter options
                     for before_resource in tds.resources.values():
-                        if need_before and 'traveler' not in before_resource.capabilities:
+                        if need_before and 'transport' not in before_resource.capabilities:
                             continue
                         if not need_before:
                             before_resource = None
 
                         for after_resource in tds.resources.values():
-                            if need_after and 'traveler' not in after_resource.capabilities:
+                            if need_after and 'transport' not in after_resource.capabilities:
                                 continue
                             if not need_after:
                                 after_resource = None
@@ -712,7 +712,7 @@ def schedule_pd_tasks(tds, pd_tasks):
     for transports in pd_tasks:
         options = []
         for resource in tds.resources.values():
-            if 'traveler' in resource.capabilities:
+            if 'transport' in resource.capabilities:
                 slots = resource.timeline.map_feasible_slots_linked_tasks(transports[0], transports[1])
                 for slot in slots:
                     slot['resource'] = resource
