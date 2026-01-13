@@ -9,7 +9,8 @@
                 "annie_shopping",
                 "cook",
                 "sewing"
-            ]
+            ],
+            "downtimes": []
         },
         {
             "name": "Debbie",
@@ -25,7 +26,8 @@
                 "volunteer",
                 "traveler",
                 "transport"
-            ]
+            ],
+            "downtimes": []
         },
         {
             "name": "AnnieBrother",
@@ -34,7 +36,8 @@
             "capabilities": [
                 "anniebrother_presence",
                 "transport"
-            ]
+            ],
+            "downtimes": []
         },
         {
             "name": "AnnieSon",
@@ -48,7 +51,8 @@
                 "jane_prescription",
                 "handywork",
                 "transport"
-            ]
+            ],
+            "downtimes": []
         },
         {
             "name": "Jane",
@@ -56,7 +60,8 @@
             "location": "Downtown",
             "capabilities": [
                 "jane_presence"
-            ]
+            ],
+            "downtimes": []
         },
         {
             "name": "Tom",
@@ -71,6 +76,14 @@
                 "jane_prescription",
                 "traveler",
                 "transport"
+            ],
+            "downtimes": [
+                {
+                    "start_time": "2025-05-20T20:00",
+                    "end_time": "2025-05-21T08:00",
+                    "duration": 540,
+                    "location": "AnnieHouse"
+                }
             ]
         }
     ],
