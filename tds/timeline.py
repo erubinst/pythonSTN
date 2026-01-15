@@ -29,11 +29,25 @@ class Timeline:
             name=f"{self.resource.name}_footer",
             capabilities=[f'{self.resource.name}_presence'],
             locations=[self.resource.base_location, self.resource.base_location],
-            tds_manager=self.tds,
+            tds_manager=self.tds
         )
         footer_task.add_time_window_constraints(global_end, global_end+1)
         footer_task.add_duration_constraint(1)
         self.resource.insert_task_to_timeline(footer_task, f'{self.resource.name}_presence', prev_task=header_task, generate_travel=generate_travel)
+
+
+    def generate_downtime(self, start, end, duration, location, prev_task):
+        generate_travel = True if 'traveler' in self.resource.capabilities else False
+        downtime_task = Task(
+            name=f'{self.resource.name}_downtime_{start}',
+            capabilities = [f'{self.resource.name}_presence'],
+            locations = [location, location],
+            tds_manager = self.tds
+        )
+        downtime_task.add_time_window_constraints(start, end)
+        downtime_task.add_duration_constraint(duration)
+        self.resource.insert_task_to_timeline(downtime_task, f'{self.resource.name}_presence', prev_task=prev_task, generate_travel=generate_travel)
+        return downtime_task
 
     
     def remove_task(self, task):
@@ -356,6 +370,7 @@ class Timeline:
 
 
 
+
     def generate_possible_pickup_dropoff(self, prev_task, task):
         # TODO: Support undo if does not work
         undo_stack = deque()
@@ -388,7 +403,7 @@ class Timeline:
         # TODO: Also maybe add max ride time constraints
         return pickup_task, dropoff_task, undo_stack
     
-
+    
     def find_same_task_groups(self):
         # TODO: Ashna
         # Loop through the timeline and find where there are 2 or more tasks of the same task_type that have  

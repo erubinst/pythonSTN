@@ -22,6 +22,50 @@ def add_resources_to_tds(resources_df, tds_manager):
         res = Resource(name, caps, base_location, tds_manager)
 
 
+def add_downtimes_to_tds(downtimes_df, tds_manager):
+    for res_name, group in downtimes_df.groupby("resource_name"):
+        res_name = res_name.lower()
+        resource = tds_manager.resources[res_name]
+        # sort in order of start times
+        group = group.sort_values('start_time')
+        prev_task = resource.timeline.tasks[0]
+        needs_pd = []
+        for _, row in group.iterrows():
+            downtime_task = resource.timeline.generate_downtime(row['start_time'], 
+                                                                row['end_time'], 
+                                                                row['duration'],
+                                                                row['location'],
+                                                                prev_task)
+            
+            if 'traveler' not in resource.capabilities:
+                needs_pd.append(downtime_task)
+            
+            prev_task = downtime_task
+
+    print("Finished adding downtimes")
+
+        # for dt in needs_pd:
+        #     pickup, dropoff = resource.timeline.add_pickup_dropoffs(dt)
+        #     if pickup is not None and dropoff is not None:
+        #         schedule_pd_task(tds, pickup, dropoff)
+
+
+def schedule_pd_task(tds, pickup, dropoff):
+    options = []
+    for resource in tds.resources.values():
+        if 'transport' in resource.capabilities:
+            slots = resource.timeline.map_feasible_slots_linked_tasks(pickup, dropoff)
+            for slot in slots:
+                slot['resource'] = resource
+                options.append(slot)
+        best = min(options, key=lambda x: x["total_travel"])
+        # get resource in best
+        resource = best['resource']
+        resource.insert_task_to_timeline(pickup, 'transport', prev_task=best['task1_prior_task'], generate_travel=True)
+        resource.insert_task_to_timeline(dropoff, 'transport', prev_task=best['task2_prior_task'], generate_travel=True)
+
+
+
 def add_tasks_to_tds(tasks_df, tds_manager):
     """
     Create Task objects from tasks_df and add them to the TDS manager.
@@ -51,6 +95,7 @@ def add_tasks_to_tds(tasks_df, tds_manager):
 
         task.add_time_window_constraints(row.get('est'), row.get('lft'))
         task.add_duration_constraint(row.get('duration'))
+
 
 def add_order_constraints_to_tds(order_constraints_df, tds_manager):
     """
@@ -82,7 +127,7 @@ def load_initial_timelines_to_tds(df, tds_manager):
         tds_manager (TDSManager): TDS manager with tasks & resources loaded
     """
     # go through groups by resource name
-    for res_name, group in df.groupby("resourceName"):
+    for res_name, group in df.groupby("resource_name"):
         res_name = res_name.lower()
         if res_name not in tds_manager.resources:
             print(f"Warning: resource '{res_name}' not found; skipping timeline")
@@ -135,9 +180,10 @@ def schedule_independent_tasks(tds):
                 break  # Break out of capability loop
         if has_missing_capability:
             continue  # Skip to next task
-
+        print(f"Trying to assign for {task.name}")
         assignments = search_through_capability_assignments(tds, task)
         if assignments:
+            print(f"Assigning for {task.name}")
             best_assignment, min_travel = min(assignments, key=lambda x: x[1])
             for assignment in best_assignment:
                 resource, prior_task, capability = assignment
@@ -254,7 +300,6 @@ def backtrack_capability_assignments_with_transport(
     transport_assignment, all_assignments
 ):
     if capability_idx == len(capabilities):
-        print(f'Grabbing total ride time for assignment with total travel {tds.sum_total_travel()}')
         all_assignments.append({
             'capability_assignment': list(current_assignment),
             'transport_assignment': list(transport_assignment),
@@ -707,30 +752,6 @@ def schedule_dependent_task(tds, task):
                         break  # Found and inserted transport for this capability, move to next
 
 
-def schedule_pd_tasks(tds, pd_tasks):
-    first_time = True
-    for transports in pd_tasks:
-        options = []
-        for resource in tds.resources.values():
-            if 'transport' in resource.capabilities:
-                slots = resource.timeline.map_feasible_slots_linked_tasks(transports[0], transports[1])
-                for slot in slots:
-                    slot['resource'] = resource
-                    options.append(slot)
-        current_travel = tds.sum_total_travel()
-        if first_time == True:
-            print(f'Options for scheduling pickup/dropoff {transports[0].name}, {transports[1].name}:')
-            for option in options:
-                print(f"Resource: {option['resource'].name}\nTotal Additional Travel: {option['total_travel'] - current_travel},\n"
-                      f"Pickup after: {option['task1_prior_task'].name},\nDropoff after: {option['task2_prior_task'].name}")
-                print('---')
-        best = min(options, key=lambda x: x["total_travel"])
-        # get resource in best
-        resource = best['resource']
-        resource.insert_task_to_timeline(transports[0], 'transport', prev_task=best['task1_prior_task'], generate_travel=True)
-        resource.insert_task_to_timeline(transports[1], 'transport', prev_task=best['task2_prior_task'], generate_travel=True)
-        first_time = False
-
 def add_return_home_tasks(tds):
     for resource in tds.resources.values():
         if 'traveler' in resource.capabilities:
@@ -741,9 +762,10 @@ def add_return_home_tasks(tds):
                 resource.timeline.add_return_stops(task)
 
 
-resources_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH)
+resources_df, downtimes_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH, EPOCH_DATE)
 tds = TDSManager(travel_matrix_dict)
 add_resources_to_tds(resources_df, tds)
+add_downtimes_to_tds(downtimes_df, tds)
 add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
 # TODO: Ashna - to test
 # for resource in tds.resources.values():
@@ -756,8 +778,8 @@ add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
 # schedule_pd_tasks(tds, pd_tasks)
 # add_return_home_tasks(tds)
 # print(tds.sum_total_travel())
-# dependent_tasks = schedule_independent_tasks(tds)
-# for dep_task in dependent_tasks:
-    # schedule_dependent_task(tds, dep_task)
-# display_current_schedule(tds, EPOCH_DATE)
+dependent_tasks = schedule_independent_tasks(tds)
+for dep_task in dependent_tasks:
+    schedule_dependent_task(tds, dep_task)
+display_current_schedule(tds, EPOCH_DATE)
 

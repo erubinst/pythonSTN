@@ -2,6 +2,8 @@ from .timeline import Timeline
 from .config import *
 import pandas as pd
 import numpy as np
+from .utils import minutes_since_cz
+from datetime import datetime
 
 class Resource:
     def __init__(self, name, capabilities, base_location, tds_manager):
@@ -12,7 +14,10 @@ class Resource:
         self.timeline = Timeline(self, tds_manager)
 
         self.tds.add_resource_to_manager(self)
-        self.timeline.create_header_footer(GLOBAL_START, GLOBAL_END)
+        cz_datetime = datetime.fromisoformat(EPOCH_DATE)
+        global_start_min = minutes_since_cz(GLOBAL_START, cz_datetime)
+        global_end_min = minutes_since_cz(GLOBAL_END, cz_datetime)
+        self.timeline.create_header_footer(global_start_min, global_end_min)
 
     def insert_task_to_timeline(self, task, capability, prev_task=None, generate_travel=True):
         # Ensure task is appended via timeline (this will add STN ordering when prev task given)

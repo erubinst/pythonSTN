@@ -1,9 +1,9 @@
-REQUEST_PATH = '/Users/esmerubinstein/Desktop/ICLL/pythonSTN/tds/simple_test/request.json'
-INITIAL_SCHEDULE_PATH = '/Users/esmerubinstein/Desktop/ICLL/pythonSTN/tds/simple_test/initial_schedule.json'
-TRAVEL_MATRIX_PATH = '/Users/esmerubinstein/Desktop/ICLL/pythonSTN/tds/simple_test/travel_matrix.json'
-EPOCH_DATE = '2025-05-19'
-GLOBAL_START = 1915
-GLOBAL_END = 2375
+REQUEST_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/p3_w3_scenario/request.json'
+INITIAL_SCHEDULE_PATH = ''
+TRAVEL_MATRIX_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/p3_w3_scenario/travel_matrix.json'
+EPOCH_DATE = '2025-05-19T00:00'
+GLOBAL_START = "2026-01-14T08:00"
+GLOBAL_END = "2026-01-20T23:00"
 MIN_HOME_TIME = 60
-TRANSPORT_REQUEST_OUTPUT_PATH = '/Users/esmerubinstein/Desktop/ICLL/pythonSTN/tds/transport_requests_output.json'
+TRANSPORT_REQUEST_OUTPUT_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/transport_requests_output.json'
 MAX_ADDITIONAL_RIDE_TIME = 40  # minutes

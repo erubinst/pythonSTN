@@ -1,0 +1,101 @@
+{
+    "SeniorApartments": {
+        "AppleBees": 7,
+        "Vintage": 19,
+        "GroceryStore": 12,
+        "DenimBrotherHouse": 17,
+        "GooseDaughterHouse": 60,
+        "DenimSonHouse": 60,
+        "SeniorApartments": 0,
+        "Church": 60,
+        "BowlingAlley": 60
+    },
+    "GooseDaughterHouse": {
+        "SeniorApartments": 60,
+        "DenimBrotherHouse": 60,
+        "DenimSonHouse": 60,
+        "GroceryStore": 60,
+        "Vintage": 60,
+        "BowlingAlley": 60,
+        "Church": 60,
+        "AppleBees": 60,
+        "GooseDaughterHouse": 0
+    },
+    "DenimBrotherHouse": {
+        "AppleBees": 17,
+        "Vintage": 30,
+        "SeniorApartments": 17,
+        "GroceryStore": 15,
+        "GooseDaugtherHouse": 60,
+        "DenimSonHouse": 60,
+        "DenimBrotherHouse": 0,
+        "Church": 60,
+        "BowlingAlley": 60
+    },
+    "DenimSonHouse": {
+        "SeniorApartments": 60,
+        "DenimBrotherHouse": 60,
+        "DenimSonHouse": 0,
+        "GroceryStore": 60,
+        "Vintage": 60,
+        "BowlingAlley": 60,
+        "Church": 60,
+        "AppleBees": 60,
+        "GooseDaughterHouse": 60
+    },
+    "GroceryStore": {
+        "Vintage": 27,
+        "AppleBees": 12,
+        "DenimBrotherHouse": 15,
+        "SeniorApartments": 12,
+        "GooseDaugtherHouse": 60,
+        "DenimSonHouse": 60,
+        "GroceryStore": 0,
+        "Church": 60,
+        "BowlingAlley": 60
+    },
+    "Vintage": {
+        "GroceryStore": 27,
+        "AppleBees": 18,
+        "DenimBrotherHouse": 30,
+        "SeniorApartments": 19,
+        "GooseDaughterHouse": 60,
+        "DenimSonHouse": 60,
+        "Vintage": 0,
+        "Church": 60,
+        "BowlingAlley": 60
+    },
+    "BowlingAlley": {
+        "SeniorApartments": 60,
+        "DenimBrotherHouse": 60,
+        "DenimSonHouse": 60,
+        "GroceryStore": 60,
+        "Vintage": 60,
+        "BowlingAlley": 0,
+        "Church": 60,
+        "AppleBees": 60,
+        "GooseDaughterHouse": 60
+    },
+    "Church": {
+        "SeniorApartments": 60,
+        "DenimBrotherHouse": 60,
+        "DenimSonHouse": 60,
+        "GroceryStore": 60,
+        "Vintage": 60,
+        "BowlingAlley": 60,
+        "Church": 0,
+        "AppleBees": 60,
+        "GooseDaughterHouse": 60
+    },
+    "AppleBees": {
+        "Vintage": 18,
+        "SeniorApartments": 7,
+        "GroceryStore": 12,
+        "DenimBrotherHouse": 17,
+        "GooseDaugtherHouse": 60,
+        "DenimSonHouse": 60,
+        "AppleBees": 0,
+        "Church": 60,
+        "BowlingAlley": 60
+    }
+}

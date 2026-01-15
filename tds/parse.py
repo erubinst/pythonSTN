@@ -44,7 +44,7 @@ def schedule_json_to_df(initial_schedule_path: str) -> pd.DataFrame:
         res_name = res_entry["resourceName"]
         for tentry in res_entry.get("timeline", []):
             rows.append({
-                "resourceName": res_name,
+                "resource_name": res_name,
                 "order": tentry.get("order"),
                 "capability": tentry.get("capability"),
             })
@@ -59,8 +59,21 @@ def load_resources_df(resources_dict):
         rows.append({
             "resource_name": name,
             "capabilities": ", ".join(r.get("capabilities", [])),
-            'location': r['location']
+            'location': r['location'],
         })
+    return pd.DataFrame(rows)
+
+def load_downtimes_df(resources_dict, cz_datetime):
+    rows = []
+    for name, r in resources_dict.items():
+        for downtime in r['downtimes']:
+            rows.append({
+                'resource_name': name,
+                'start_time': minutes_since_cz(downtime["start_time"], cz_datetime),
+                'end_time': minutes_since_cz(downtime["end_time"], cz_datetime),
+                'location': downtime['location'],
+                'duration': downtime['duration']
+            })
     return pd.DataFrame(rows)
 
 
@@ -94,13 +107,14 @@ def load_travel_matrix(travel_matrix_path):
     return travel_data  
 
 
-def load_resources_and_tasks(request_path, travel_matrix_path, cz_datetime_str="2025-05-19T00:00"):
+def load_resources_and_tasks(request_path, travel_matrix_path, cz_datetime_str):
     cz_datetime = datetime.fromisoformat(cz_datetime_str)
     request_data = load_request_data(request_path)
 
     resources_df = load_resources_df(request_data["resources"])
+    downtimes_df = load_downtimes_df(request_data['resources'], cz_datetime)
     tasks_df = load_tasks_df(request_data["templates"], request_data["orders"], cz_datetime)
     travel_matrix_dict = load_travel_matrix(travel_matrix_path)
     order_constraints = request_data["order_constraints"]
 
-    return resources_df, tasks_df, travel_matrix_dict,order_constraints
+    return resources_df, downtimes_df, tasks_df, travel_matrix_dict,order_constraints

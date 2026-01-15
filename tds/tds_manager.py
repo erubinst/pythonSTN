@@ -17,7 +17,7 @@ class TDSManager:
             task_lst = self.tasks.values()
         flex_list = []
         for task in task_lst:
-            if task.name.endswith('_header') or task.name.endswith('_footer'):
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
             flex_list.append((task.get_task_flexibility(),task.name,task))
         flex_list.sort()
