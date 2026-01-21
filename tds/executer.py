@@ -781,5 +781,6 @@ add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
 dependent_tasks = schedule_independent_tasks(tds)
 for dep_task in dependent_tasks:
     schedule_dependent_task(tds, dep_task)
-display_current_schedule(tds, EPOCH_DATE)
+# display_current_schedule(tds, EPOCH_DATE)
+export_schedule_to_csv(tds, EPOCH_DATE)
 

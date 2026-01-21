@@ -435,7 +435,8 @@ class Timeline:
                 "start_ub": task.start.ub,
                 "end_lb": np.abs(task.end.lb),
                 "end_ub": task.end.ub,
-                "capability": cap_for_resource
+                "capability": cap_for_resource,
+                "location": task.locations[0]
             })
 
             # find travel constraint for ahead task unless on last task
@@ -449,10 +450,11 @@ class Timeline:
                         "resource": self.resource.name,
                         "task_name": f"travel_{task.name}_to_{next_task.name}",
                         "start_lb": np.abs(task.end.lb) + 0.5,
-                        "start_ub": task.end.ub + 0.5,
+                        "start_ub": next_task.start.ub - travel_lb,
                         "end_lb": np.abs(task.end.lb) + travel_lb,
-                        "end_ub": task.end.ub + travel_lb,
-                        "capability": "travel"
+                        "end_ub": next_task.start.ub,
+                        "capability": "travel",
+                        "location": None
                     })
 
         df = pd.DataFrame(rows)
