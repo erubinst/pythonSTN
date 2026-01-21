@@ -87,7 +87,8 @@ def add_tasks_to_tds(tasks_df, tds_manager):
                 tds_manager=tds_manager,
                 order=None, #TODO set order
                 template=None, #TODO set template
-                locations = row['locations']
+                locations = row['locations'],
+                task_type = row['task_type']
             )
         except ValueError as e:
             print(f"Error creating task '{name}': {e}")
@@ -768,8 +769,8 @@ add_resources_to_tds(resources_df, tds)
 add_downtimes_to_tds(downtimes_df, tds)
 add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
 # TODO: Ashna - to test
-# for resource in tds.resources.values():
-    # print(resource.timeline.find_same_task_groups())
+for resource in tds.resources.values():
+    print(resource.timeline.find_same_task_groups())
 
 
 # init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)

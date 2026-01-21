@@ -412,7 +412,36 @@ class Timeline:
         # until you have all of the back to back of same type and end when you get to a 
         # new type or they are no longer back to back
         # We want to return a list where each element is a list of grouped tasks (elements are task object instance)
-        pass
+        grouped_tasks = []
+        curr_group = []
+        
+        for i in range (len(self.tasks)):
+            task = self.tasks[i]
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+            task_type = task.task_type
+
+            if (curr_group == []):
+                curr_group = [task]
+                continue
+
+            prev_task = curr_group [-1]
+            prev_task_type = prev_task.task_type
+
+            if ((prev_task_type==task_type) and (np.abs(task.start.lb) - np.abs(prev_task.end.lb) == 0)):
+                curr_group.append(task)
+            else:
+                if (len(curr_group)>=2):
+                    grouped_tasks.append(curr_group)
+                curr_group = [task]
+        if (len(curr_group)>=2):
+                    grouped_tasks.append(curr_group)
+        return grouped_tasks
+
+
+
+            
+
 
 
     def export_to_df(self):

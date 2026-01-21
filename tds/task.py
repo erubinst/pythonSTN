@@ -8,7 +8,8 @@ class Task:
                  tds_manager,
                  order=None, 
                  template=None, 
-                 locations=[]):
+                 locations=[],
+                 task_type = "NA"):
         """
         Create a Task and its start/end timepoints.
         """
@@ -32,6 +33,8 @@ class Task:
 
         # register this task object with the manager under its name
         self.tds.add_task_to_manager(self)
+
+        self.task_type = task_type
 
     def get_release_time(self):
         # get edge weight with cz to start constraint type 'release_time'
