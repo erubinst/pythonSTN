@@ -20,8 +20,7 @@ def execute_undo_functions(undo_info):
             undo_fn_info()
 
 
-def display_current_schedule(tds, epoch_date_str):
-    df = tds.export_to_df()
+def convert_times_to_realtime(df, epoch_date_str):
     epoch_date = pd.to_datetime(epoch_date_str)
     df['start_lb'] = epoch_date + pd.to_timedelta(df['start_lb'], unit='m')
     df['end_lb'] = epoch_date + pd.to_timedelta(df['end_lb'], unit='m')
@@ -33,6 +32,13 @@ def display_current_schedule(tds, epoch_date_str):
     df["start_ub_time"] = df["start_ub"].dt.strftime("%H:%M")
     df["end_ub_time"]   = df["end_ub"].dt.strftime("%H:%M")
 
+    return df
+
+
+def display_current_schedule(tds, epoch_date_str):
+    df = tds.export_to_df()
+    df = convert_times_to_realtime(df, epoch_date_str)
+
     # if task name contains 'travel', set to different color
     df['type'] = 'task'
     df.loc[df['task_name'].str.contains('downtime'), 'type'] = 'downtime'
@@ -40,8 +46,11 @@ def display_current_schedule(tds, epoch_date_str):
     df.loc[df['task_name'].str.endswith('_header'), 'type'] = 'downtime'
     df.loc[df['task_name'].str.endswith('_footer'), 'type'] = 'downtime'
     df.loc[df['task_name'].str.startswith('travel'), 'type'] = 'travel'
-    df.loc[df['task_name'].str.startswith('pickup_from_'), 'type'] = 'transport'
-    df.loc[df['task_name'].str.startswith('dropoff_at_'), 'type'] = 'transport'
+    df.loc[df['task_name'].str.startswith('pickup_from_'), 'type'] = 'ztransport'
+    df.loc[df['task_name'].str.startswith('dropoff_at_'), 'type'] = 'ztransport'
+
+    # sort the df so that all the type transport are last
+    df = df.sort_values('type')
 
     df["type"] = df["type"].astype(str)
     color_discrete_map = {
@@ -102,3 +111,15 @@ def display_current_schedule(tds, epoch_date_str):
     )
 
     fig.show()
+
+
+def export_schedule_to_csv(tds, epoch_date_str):
+    df = tds.export_to_df()
+    df = convert_times_to_realtime(df, epoch_date_str)
+    # remove following columns: capability, start_lb_time, end_lb_time, start_ub_time, end_ub_time
+    df = df.drop(columns=['capability', 'start_lb_time', 'end_lb_time', 'start_ub_time', 'end_ub_time'])
+    # filter out those with task_name containing 'downtime' or ending with '_header' or '_footer'
+    df = df[~df['task_name'].str.contains('downtime')]
+    df = df[~df['task_name'].str.endswith('_header')]
+    df = df[~df['task_name'].str.endswith('_footer')]
+    df.to_csv("tds_schedule_export.csv", index=False)
