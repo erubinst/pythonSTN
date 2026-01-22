@@ -80,7 +80,8 @@ def add_tasks_to_tds(tasks_df, tds_manager):
                 tds_manager=tds_manager,
                 order=None, #TODO set order
                 template=None, #TODO set template
-                locations = row['locations']
+                locations = row['locations'],
+                task_type = row['task_type']
             )
         except ValueError as e:
             print(f"Error creating task '{name}': {e}")

@@ -2,7 +2,7 @@ from stn.stn import STN
 import json
 import numpy as np
 
-file_path = "/Users/esmerubinstein/Desktop/ICLL/pythonSTN/stn/simple_test/test.json"
+file_path = "/Users/ashnajain/Desktop/pythonSTN/stn/simple_test/test.json"
 #load json
 with open(file_path, "r") as f:
     data = json.load(f)
