@@ -86,9 +86,6 @@ def load_tasks_df(templates_dict, orders_dict, cz_datetime):
         if not template:
             continue
         subtask = template["subtasks"][0]  # assume one subtask per template
-        # TODO: Ashna - add in "task_type" to the df here 
-        # it's similar to duration so the value would be subtask.get("task_type", "NA") if 
-        # you use "NA" as your default although it should always be filled in the request.json
         rows.append({
             "task_name": order_name,
             "required_capabilities": ", ".join(subtask.get("requiredCapabilities", [])),

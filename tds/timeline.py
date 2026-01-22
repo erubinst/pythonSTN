@@ -405,13 +405,6 @@ class Timeline:
     
     
     def find_same_task_groups(self):
-        # TODO: Ashna
-        # Loop through the timeline and find where there are 2 or more tasks of the same task_type that have  
-        # np.abs(task2.start.lb) - np.abs(task1.end.lb) = 0 (this means they are back to back)
-        # Keep in mind that we want the entire group so keep looking forward on the timeline
-        # until you have all of the back to back of same type and end when you get to a 
-        # new type or they are no longer back to back
-        # We want to return a list where each element is a list of grouped tasks (elements are task object instance)
         grouped_tasks = []
         curr_group = []
         
@@ -437,11 +430,6 @@ class Timeline:
         if (len(curr_group)>=2):
                     grouped_tasks.append(curr_group)
         return grouped_tasks
-
-
-
-            
-
 
 
     def export_to_df(self):

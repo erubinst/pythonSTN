@@ -68,8 +68,6 @@ def add_tasks_to_tds(tasks_df, tds_manager):
         tasks_df (pd.DataFrame): columns = ['task_name', 'required_capabilities', 'est', 'lft', 'duration']
         tds_manager: initialized TDS manager object
     """
-    # TODO: Ashna - after adding task type to the df in parse.py and to the task class as a param
-    # add to the task instantiation here and set with row['task_type']
     for _, row in tasks_df.iterrows():
         name = row["task_name"]
         capabilities = [c.strip() for c in row["required_capabilities"].split(",")] if row["required_capabilities"] else []
@@ -184,5 +182,5 @@ dependent_tasks = schedule_independent_tasks(tds)
 for dep_task in dependent_tasks:
     schedule_dependent_task(tds, dep_task)
 # display_current_schedule(tds, EPOCH_DATE)
-export_schedule_to_csv(tds, EPOCH_DATE)
+# export_schedule_to_csv(tds, EPOCH_DATE)
 
