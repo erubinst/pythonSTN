@@ -13,3 +13,4 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["tds", "stn"]
+py-modules = ["executer"]

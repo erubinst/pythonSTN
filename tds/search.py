@@ -1,4 +1,4 @@
-from utils import *
+from tds.utils import *
 from collections import deque
 
 # Pull out tasks that can be done by a driver and schedule
@@ -32,120 +32,183 @@ def schedule_independent_tasks(tds):
     return dependent_tasks
 
 
-# Schedule tasks that require transport
 def schedule_dependent_task(tds, task):
     print(f'scheduling {task.name}')
     assignments = search_through_capability_assignments_with_transport(tds, task)
-    # deduplicate assignments
-    for i in range(len(assignments)-1, -1, -1):
-        for j in range(i-1, -1, -1):
-            if assignments[i]['capability_assignment'] == assignments[j]['capability_assignment'] and assignments[i]['transport_assignment'] == assignments[j]['transport_assignment']:
-                print(f'Deduplicating assignments for {task.name} at indices {i} and {j}')
-                assignments.pop(i)
-                break
-    # export assignments to file
-    assignments_file = f'assignments_{task.name}.txt'
-    with open(assignments_file, 'w') as f:
+    assignments = deduplicate_assignments(assignments, task.name)
+    # write_assignments_to_file(assignments, task)
+
+    assignment = select_best_assignment(assignments, task.name)
+    if assignment is None:
+        return
+
+    apply_assignment(task, assignment)
+
+
+def deduplicate_assignments(assignments, task_name):
+    unique = []
+
+    for assignment in assignments:
+        if not any(
+            assignment['capability_assignment'] == u['capability_assignment'] and
+            assignment['transport_assignment'] == u['transport_assignment']
+            for u in unique
+        ):
+            unique.append(assignment)
+        else:
+            print(f'Deduplicating assignments for {task_name}')
+
+    return unique
+
+
+def select_best_assignment(assignments, task_name):
+    if not assignments:
+        print(f'No possible assignments for {task_name}')
+        return None
+
+    min_travel = min(a['total_travel'] for a in assignments)
+    min_travel_assignments = [
+        a for a in assignments if a['total_travel'] == min_travel
+    ]
+
+    print(
+        f'Found {len(min_travel_assignments)} assignments '
+        f'with minimal travel {min_travel} for {task_name}'
+    )
+
+    best = min(min_travel_assignments, key=lambda a: a['total_ride_time'])
+    print(f'Selected assignment with ride time {best["total_ride_time"]}')
+
+    return best
+
+
+def apply_assignment(task, assignment):
+    for resource, prior_task, capability in assignment['capability_assignment']:
+        prepare_resource_for_assignment(resource, prior_task)
+
+        print(f'Assigning {task.name} to {resource.name} after {prior_task.name}')
+        resource.insert_task_to_timeline(task, capability, prior_task)
+
+        if 'traveler' not in resource.capabilities:
+            assign_transport_tasks(resource, task, assignment)
+
+
+def prepare_resource_for_assignment(resource, prior_task):
+    if 'traveler' in resource.capabilities:
+        return
+
+    timeline = resource.timeline
+    prior_index = timeline.tasks.index(prior_task)
+
+    first_non_transport_task = timeline.tasks[-1]
+    for t in timeline.tasks[prior_index + 1:]:
+        if 'pickup' not in t.name.lower() and 'dropoff' not in t.name.lower():
+            first_non_transport_task = t
+            break
+
+    remove_existing_transport_between(
+        timeline,
+        prior_task,
+        first_non_transport_task,
+        save_task=False
+    )
+
+def assign_transport_tasks(resource, task, assignment):
+    for t in assignment['transport_assignment']:
+        before_dropoff_task = t['before_dropoff_task']
+
+        # Match this transport to the task/resource
+        if (task.name.lower() not in before_dropoff_task.name.lower() or
+            resource.name.lower() not in before_dropoff_task.name.lower()):
+            continue
+
+        # Add pickup/dropoff placeholders around task
+        resource.timeline.add_pickup_dropoffs(task)
+        next_task = resource.timeline.tasks[
+            resource.timeline.tasks.index(task) + 1
+        ]
+        resource.timeline.add_pickup_dropoffs(next_task)
+
+        # BEFORE transport
+        before_resource = t['before_resource']
+
+        print(
+            f'Assigning transport task {t["before_pickup_task"].name} '
+            f'to {before_resource.name} after {t["before_pickup_prior_task"].name}'
+        )
+
+        before_resource.insert_task_to_timeline(
+            t['before_pickup_task'],
+            'transport',
+            t['before_pickup_prior_task']
+        )
+
+        before_resource.insert_task_to_timeline(
+            t['before_dropoff_task'],
+            'transport',
+            t['before_dropoff_prior_task']
+        )
+
+        # AFTER transport (optional)
+        if t['after_resource'] is not None:
+            after_resource = t['after_resource']
+
+            print(
+                f'Assigning transport task {t["after_pickup_task"].name} '
+                f'to {after_resource.name} after {t["after_pickup_prior_task"].name}'
+            )
+
+            after_resource.insert_task_to_timeline(
+                t['after_pickup_task'],
+                'transport',
+                t['after_pickup_prior_task']
+            )
+
+            after_resource.insert_task_to_timeline(
+                t['after_dropoff_task'],
+                'transport',
+                t['after_dropoff_prior_task']
+            )
+
+        break  # transport found & applied
+
+
+def write_assignments_to_file(assignments, task):
+    filename = f'assignments_{task.name}.txt'
+
+    with open(filename, 'w') as f:
         for assignment in assignments:
             f.write(f'Assignment with total travel {assignment["total_travel"]}:\n')
             f.write(f'Assignment with total ride time {assignment["total_ride_time"]}:\n')
+
             f.write('Capability Assignments:\n')
-            for cap_assign in assignment['capability_assignment']:
-                resource = cap_assign[0]
-                prior_task = cap_assign[1]
-                capability = cap_assign[2]
-                f.write(f'  Resource: {resource.name}, Prior Task: {prior_task.name}, Capability: {capability}\n')
+            for resource, prior_task, capability in assignment['capability_assignment']:
+                f.write(
+                    f'  Resource: {resource.name}, '
+                    f'Prior Task: {prior_task.name}, '
+                    f'Capability: {capability}\n'
+                )
+
             f.write('Transport Assignments:\n')
-            for transport_assign in assignment['transport_assignment']:
-                before_resource = transport_assign['before_resource']
-                before_pickup_task = transport_assign['before_pickup_task']
-                before_dropoff_task = transport_assign['before_dropoff_task']
-                before_pickup_prior_task = transport_assign['before_pickup_prior_task']
-                before_dropoff_prior_task = transport_assign['before_dropoff_prior_task']
-                f.write(f'  Before Resource: {before_resource.name}, Pickup Task: {before_pickup_task.name}, Dropoff Task: {before_dropoff_task.name}, '
-                        f'Pickup Prior Task: {before_pickup_prior_task.name}, Dropoff Prior Task: {before_dropoff_prior_task.name}\n')
-                after_resource = transport_assign['after_resource']
-                if after_resource is not None:
-                    after_pickup_task = transport_assign['after_pickup_task']
-                    after_dropoff_task = transport_assign['after_dropoff_task']
-                    after_pickup_prior_task = transport_assign['after_pickup_prior_task']
-                    after_dropoff_prior_task = transport_assign['after_dropoff_prior_task']
-                    f.write(f'  After Resource: {after_resource.name}, Pickup Task: {after_pickup_task.name}, Dropoff Task: {after_dropoff_task.name}, '
-                            f'Pickup Prior Task: {after_pickup_prior_task.name}, Dropoff Prior Task: {after_dropoff_prior_task.name}\n')
+            for t in assignment['transport_assignment']:
+                f.write(
+                    f'  Before Resource: {t["before_resource"].name}, '
+                    f'Pickup Task: {t["before_pickup_task"].name}, '
+                    f'Dropoff Task: {t["before_dropoff_task"].name}, '
+                    f'Pickup Prior Task: {t["before_pickup_prior_task"].name}, '
+                    f'Dropoff Prior Task: {t["before_dropoff_prior_task"].name}\n'
+                )
+
+                if t['after_resource'] is not None:
+                    f.write(
+                        f'  After Resource: {t["after_resource"].name}, '
+                        f'Pickup Task: {t["after_pickup_task"].name}, '
+                        f'Dropoff Task: {t["after_dropoff_task"].name}, '
+                        f'Pickup Prior Task: {t["after_pickup_prior_task"].name}, '
+                        f'Dropoff Prior Task: {t["after_dropoff_prior_task"].name}\n'
+                    )
+
             f.write('---\n')
-    # # check for duplicate assignments
-    # for i in range(len(assignments)):
-    #     for j in range(i + 1, len(assignments)):
-    #         if assignments[i]['capability_assignment'] == assignments[j]['capability_assignment'] and assignments[i]['transport_assignment'] == assignments[j]['transport_assignment']:
-    #             print(f'Warning: Duplicate assignments found for {task.name} at indices {i} and {j}')
-    # print number of minimal travel assignments
-    if not assignments:
-        print(f'No possible assignments for {task.name}')
-    else:
-        min_travel = min(assignments, key=lambda x: x['total_travel'])
-        num_min_travel = sum(1 for a in assignments if a['total_travel'] == min_travel['total_travel'])
-        print(f'Found {num_min_travel} assignments with minimal travel {min_travel["total_travel"]} for {task.name}')
-
-        # Filter to assignments with minimal travel
-        min_travel_assignments = [a for a in assignments if a['total_travel'] == min_travel['total_travel']]
-
-        # Break ties by selecting minimal ride time
-        assignment = min(min_travel_assignments, key=lambda x: x['total_ride_time'])
-        print(f'Selected assignment with ride time {assignment["total_ride_time"]}')
-        for capability_assignment in assignment['capability_assignment']:
-            resource = capability_assignment[0]
-            prior_task = capability_assignment[1]
-            capability = capability_assignment[2]
-
-            if 'traveler' not in resource.capabilities:
-                first_non_transport_task = resource.timeline.tasks[-1]
-                prior_task_index = resource.timeline.tasks.index(prior_task)
-                for t_task in resource.timeline.tasks[prior_task_index+1:]:
-                    if 'pickup' not in t_task.name.lower() and 'dropoff' not in t_task.name.lower():
-                        first_non_transport_task = t_task
-                        break
-                remove_existing_transport_between(resource.timeline, prior_task, first_non_transport_task, save_task=False)
-            print(f'Assigning {task.name} to {resource.name} after {prior_task.name}')
-            resource.insert_task_to_timeline(task, capability, prior_task)
-            # If this resource needs transport, find and insert the associated transport tasks
-            if 'traveler' not in resource.capabilities:
-                # Find transport assignments for this capability
-                # The transport tasks are named: pickup_from_<prior_location>_<resource>
-                #                                dropoff_at_<task_name>_<resource>
-                for transport_assign in assignment['transport_assignment']:
-                    before_resource = transport_assign['before_resource']
-                    before_pickup_task = transport_assign['before_pickup_task']
-                    before_dropoff_task = transport_assign['before_dropoff_task']
-
-                    # Match by checking if the dropoff task name contains this task's name and resource
-                    # Example: dropoff_at_preparecakeingredients_annie
-                    if task.name.lower() in before_dropoff_task.name.lower() and resource.name.lower() in before_dropoff_task.name.lower():
-                        # Found the transport for this capability
-                        before_pickup_prior_task = transport_assign['before_pickup_prior_task']
-                        before_dropoff_prior_task = transport_assign['before_dropoff_prior_task']
-                        resource.timeline.add_pickup_dropoffs(task)
-                        next_task = resource.timeline.tasks[resource.timeline.tasks.index(task)+1]
-                        resource.timeline.add_pickup_dropoffs(next_task)
-
-                        print(f'Assigning transport task {before_pickup_task.name} to {before_resource.name} after {before_pickup_prior_task.name}')
-                        before_resource.insert_task_to_timeline(before_pickup_task, 'transport', before_pickup_prior_task)
-
-                        print(f'Assigning transport task {before_dropoff_task.name} to {before_resource.name} after {before_dropoff_prior_task.name}')
-                        before_resource.insert_task_to_timeline(before_dropoff_task, 'transport', before_dropoff_prior_task)
-
-                        # Handle "after" transport if it exists (transport after this task completes)
-                        after_resource = transport_assign['after_resource']
-                        if after_resource is not None:
-                            after_pickup_task = transport_assign['after_pickup_task']
-                            after_dropoff_task = transport_assign['after_dropoff_task']
-                            after_pickup_prior_task = transport_assign['after_pickup_prior_task']
-                            after_dropoff_prior_task = transport_assign['after_dropoff_prior_task']
-
-                            print(f'Assigning transport task {after_pickup_task.name} to {after_resource.name} after {after_pickup_prior_task.name}')
-                            after_resource.insert_task_to_timeline(after_pickup_task, 'transport', after_pickup_prior_task)
-                            after_resource.insert_task_to_timeline(after_dropoff_task, 'transport', after_dropoff_prior_task)
-
-                        break  # Found and inserted transport for this capability, move to next
 
 
 # --- Case where we don't need to worry about transportation assignments ---
@@ -194,6 +257,8 @@ def backtrack_capability_assignments(tds, task, capabilities, capability_idx, cu
     new_task_lst = task.start.ub
     
     for resource in tds.resources.values():
+        if 'traveler' not in resource.capabilities:
+            continue
         if capability not in resource.capabilities:
             continue
         

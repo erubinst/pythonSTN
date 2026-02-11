@@ -40,8 +40,13 @@ class Task:
     def get_duration(self):
         return np.abs(self.start.ub_edge_weight(self.end, ('all', 'duration')))
     
-    def get_task_flexibility(self):
+    def get_task_starting_flexibility(self):
         return self.get_due_date() - self.get_release_time() - self.get_duration()
+    
+    def get_task_slack(self):
+        # sliding slack - difference between duration and task ub - lb
+        sliding_slack = self.get_duration() - (self.end.ub - self.start.lb)
+        # slot slack - who else can take the task in the current time window
 
     def update_task_name(self, new_name):
         old_name = self.name

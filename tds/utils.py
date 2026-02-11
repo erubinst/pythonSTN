@@ -21,11 +21,18 @@ def execute_undo_functions(undo_info):
 
 
 def convert_times_to_realtime(df, epoch_date_str):
+    # set timezone to utc
     epoch_date = pd.to_datetime(epoch_date_str)
     df['start_lb'] = epoch_date + pd.to_timedelta(df['start_lb'], unit='m')
     df['end_lb'] = epoch_date + pd.to_timedelta(df['end_lb'], unit='m')
     df['start_ub'] = epoch_date + pd.to_timedelta(df['start_ub'], unit='m')
     df['end_ub'] = epoch_date + pd.to_timedelta(df['end_ub'], unit='m')
+
+
+    df['start_lb'] = df['start_lb'].dt.tz_localize('UTC')
+    df['end_lb'] = df['end_lb'].dt.tz_localize('UTC')
+    df['start_ub'] = df['start_ub'].dt.tz_localize('UTC')
+    df['end_ub'] = df['end_ub'].dt.tz_localize('UTC')
 
     df["start_lb_time"] = df["start_lb"].dt.strftime("%H:%M")
     df["end_lb_time"]   = df["end_lb"].dt.strftime("%H:%M")
@@ -113,13 +120,16 @@ def display_current_schedule(tds, epoch_date_str):
     fig.show()
 
 
-def export_schedule_to_csv(tds, epoch_date_str):
+def export_schedule_to_df(tds, epoch_date_str):
     df = tds.export_to_df()
     df = convert_times_to_realtime(df, epoch_date_str)
     # remove following columns: capability, start_lb_time, end_lb_time, start_ub_time, end_ub_time
-    df = df.drop(columns=['capability', 'start_lb_time', 'end_lb_time', 'start_ub_time', 'end_ub_time'])
-    # filter out those with task_name containing 'downtime' or ending with '_header' or '_footer'
-    df = df[~df['task_name'].str.contains('downtime')]
-    df = df[~df['task_name'].str.endswith('_header')]
-    df = df[~df['task_name'].str.endswith('_footer')]
+    # df = df.drop(columns=['capability', 'start_lb_time', 'end_lb_time', 'start_ub_time', 'end_ub_time'])
+    #df = df[~df['task_name'].str.contains('downtime')]
+    #df = df[~df['task_name'].str.endswith('_header')]
+    #df = df[~df['task_name'].str.endswith('_footer')]
+    return df
+
+def export_schedule_to_csv(tds, epoch_date_str):
+    df = export_schedule_to_df(tds, epoch_date_str)
     df.to_csv("tds_schedule_export.csv", index=False)

@@ -466,7 +466,7 @@ class Timeline:
                     rows.append({
                         "resource": self.resource.name,
                         "task_name": f"travel_{task.name}_to_{next_task.name}",
-                        "start_lb": np.abs(task.end.lb) + 0.5,
+                        "start_lb": np.abs(task.end.lb),
                         "start_ub": next_task.start.ub - travel_lb,
                         "end_lb": np.abs(task.end.lb) + travel_lb,
                         "end_ub": next_task.start.ub,

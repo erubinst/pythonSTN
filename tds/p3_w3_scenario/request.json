@@ -1,4 +1,11 @@
 {
+    "parameters": {
+        "epoch_date": "2025-05-19T00:00",
+        "global_start": "2026-01-14T08:00",
+        "global_end": "2026-01-20T23:00",
+        "min_home_time": 60,
+        "max_additional_ride_time": 40
+    },
     "resourceTypes": [
         {
             "name": "Goose",
@@ -8,6 +15,7 @@
                 "goose_presence",
                 "goose_shopping",
                 "goose_laundry",
+                "denim_shopping",
                 "traveler",
                 "transport"
             ],
@@ -104,7 +112,8 @@
             "capabilities": [
                 "denim_presence",
                 "denim_housework",
-                "denim_shopping"
+                "denim_shopping",
+                "goose_shopping"
             ],
             "downtimes": [
                 {
@@ -153,7 +162,9 @@
                 "denimbrother_presence",
                 "traveler",
                 "transport",
-                "denimbrother_shopping"
+                "denimbrother_shopping",
+                "goose_shopping",
+                "demin_shopping"
             ],
             "downtimes": [
                 {

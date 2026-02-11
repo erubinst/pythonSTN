@@ -4,7 +4,7 @@ from tds.tds_manager import TDSManager
 from tds.config import *
 from tds.parse import *
 from tds.utils import *
-from search import schedule_independent_tasks, schedule_dependent_task
+from tds.search import schedule_independent_tasks, schedule_dependent_task
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -165,22 +165,103 @@ def add_return_home_tasks(tds):
                 resource.timeline.add_return_stops(task)
 
 
-resources_df, downtimes_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(REQUEST_PATH, TRAVEL_MATRIX_PATH, EPOCH_DATE)
-tds = TDSManager(travel_matrix_dict)
-add_resources_to_tds(resources_df, tds)
-add_downtimes_to_tds(downtimes_df, tds)
-add_tasks_to_tds(tasks_df, tds) # not yet assigned just in the system
+def reduce_like_task_durations(tds):
+    task_type_percents = {
+        'grocery_shopping': 0.65,
+    }
+
+    same_task_groups = tds.same_task_groups()
+    for resource_name, task_groups in same_task_groups.items():
+        for task_group in task_groups:
+            if len(task_group) > 1:
+                task_type = task_group[0].task_type
+                if task_type in task_type_percents:
+                    percent = task_type_percents[task_type]
+                    # print statement reducing duration with task name and task type and percent
+                    print(f"Reducing duration of {task_type} tasks to {percent*100}% for resource {resource_name} for tasks {[task.name for task in task_group]}")
+                    for task in task_group:
+                        current_duration = task.get_duration()
+                        new_duration = int(current_duration * percent)
+                        task.start.delete_constraint(task.end, ('all', 'duration'))
+                        task.add_duration_constraint(new_duration)
 
 
+def calculate_uncoordinated_time(tds):
+    # sum up for all assigned tasks travel from home location to tasks and back
+    total_travel_uncoordinated = 0
+    for resource in tds.resources.values():
+        if 'traveler' not in resource.capabilities:
+            continue
+        home_location = resource.base_location
+        for task in resource.timeline.tasks:
+            # skip header/footer/downtime tasks
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                continue
+            # get travel time from home to task start location
+            travel_to_task = tds.travel_matrix[home_location][task.locations[0]]
+            # get travel time from task end location to home
+            travel_from_task = tds.travel_matrix[task.locations[0]][home_location]
+            total_travel_uncoordinated += (travel_to_task + travel_from_task)
+
+    for resource in tds.resources.values():
+        for task in resource.timeline.tasks:
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                continue
+            task_duration = task.get_duration()
+            total_travel_uncoordinated += task_duration
+    
+    return total_travel_uncoordinated
+
+
+def run_scheduler(request_path, travel_matrix_path, epoch_date):
+    resources_df, downtimes_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(
+        request_path, travel_matrix_path, epoch_date
+    )
+    tds = TDSManager(travel_matrix_dict)
+    add_resources_to_tds(resources_df, tds)
+    add_downtimes_to_tds(downtimes_df, tds)
+    add_tasks_to_tds(tasks_df, tds)
+    # TODO fix order constraints
+    # add_order_constraints_to_tds(order_constraints, tds)
+
+    dependent_tasks = schedule_independent_tasks(tds)
+    for dep_task in dependent_tasks:
+        schedule_dependent_task(tds, dep_task)
+    
+    # add_return_home_tasks(tds)
+    
+    df = export_schedule_to_df(tds, epoch_date)
+    return df
+
+
+# Only run this if executed directly (not imported)
+if __name__ == '__main__':
+    resources_df, downtimes_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(
+        REQUEST_PATH, TRAVEL_MATRIX_PATH, EPOCH_DATE
+    )
+    tds = TDSManager(travel_matrix_dict)
+    add_resources_to_tds(resources_df, tds)
+    add_downtimes_to_tds(downtimes_df, tds)
+    add_tasks_to_tds(tasks_df, tds)
+    # TODO fix order constraints
+    # add_order_constraints_to_tds(order_constraints, tds)
+
+    dependent_tasks = schedule_independent_tasks(tds)
+    for dep_task in dependent_tasks:
+        schedule_dependent_task(tds, dep_task)
+
+    reduce_like_task_durations(tds)
+    print(f"Total task + travel time: {tds.calculate_total_travel_task_time()} minutes")
+    print(f"Total uncoordinated time: {calculate_uncoordinated_time(tds)} minutes")
+    
+    # add_return_home_tasks(tds)
+
+    display_current_schedule(tds, EPOCH_DATE)
+
+
+# --- routine for taking input schedule: ---
 # init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)
 # load_initial_timelines_to_tds(init_schedule, tds)
 # pd_tasks = add_pickup_dropoff(tds)
 # schedule_pd_tasks(tds, pd_tasks)
 # add_return_home_tasks(tds)
-# print(tds.sum_total_travel())
-dependent_tasks = schedule_independent_tasks(tds)
-for dep_task in dependent_tasks:
-    schedule_dependent_task(tds, dep_task)
-# display_current_schedule(tds, EPOCH_DATE)
-# export_schedule_to_csv(tds, EPOCH_DATE)
-

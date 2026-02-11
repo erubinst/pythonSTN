@@ -19,7 +19,7 @@ class TDSManager:
         for task in task_lst:
             if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
-            flex_list.append((task.get_task_flexibility(),task.name,task))
+            flex_list.append((task.get_task_starting_flexibility(),task.name,task))
         flex_list.sort()
         sorted_tasks = []
         for _,_,task in flex_list:
@@ -67,6 +67,26 @@ class TDSManager:
     def add_resource_to_manager(self, resource):
         """Register a resource."""
         self.resources[resource.name] = resource
+
+    def same_task_groups(self):
+        resource_same_tasks = {}
+        for res_name, resource in self.resources.items():
+            task_groups = resource.timeline.find_same_task_groups()
+            resource_same_tasks[res_name] = task_groups
+        return resource_same_tasks
+    
+    def calculate_total_travel_task_time(self):
+        total_travel = self.sum_total_travel()
+        # find total task duration time
+        total_task_time = 0
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                # skip downtime tasks and header/footer tasks
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue   
+                total_task_time += task.get_duration()
+        total_time = total_task_time + total_travel
+        return total_time
 
     def export_to_df(self):
         df = pd.DataFrame()
