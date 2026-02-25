@@ -4,7 +4,7 @@ from tds.tds_manager import TDSManager
 from tds.config import *
 from tds.parse import *
 from tds.utils import *
-from tds.search import schedule_independent_tasks, schedule_dependent_task
+from tds.search import is_task_independent, schedule_independent_task, schedule_independent_tasks, schedule_dependent_task
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -147,10 +147,10 @@ def load_initial_timelines_to_tds(df, tds_manager):
 
             prev_task = task
 
-        for _, row in group.iterrows():
-            order_name = row["order"].lower()
-            task = tds_manager.tasks.get(order_name)
-            resource.timeline.add_return_stops(task)
+        # for _, row in group.iterrows():
+        #     order_name = row["order"].lower()
+        #     task = tds_manager.tasks.get(order_name)
+        #     resource.timeline.add_return_stops(task)
             # initially schedule transport on nondriver timeline
 # ---------------------------------------------------------
 
@@ -232,6 +232,31 @@ def run_scheduler(request_path, travel_matrix_path, epoch_date):
     
     df = export_schedule_to_df(tds, epoch_date)
     return df
+
+
+def add_task(tds, new_task_info, current_schedule):
+    init_schedule = schedule_dict_to_df(current_schedule)
+    # add in resources
+    # add in tasks
+    # add in ordering of timelines
+    load_initial_timelines_to_tds(init_schedule, tds) #need to rewrite considering mongo setup, remove travel
+    new_task = Task(
+        name=new_task_info['task_name'],
+        capabilities=new_task_info['required_capabilities'],
+        tds_manager=tds,
+        order=None, #TODO set order
+        template=None, #TODO set template
+        locations = new_task_info['locations'],
+        task_type = new_task_info['task_type']
+    )
+    new_task.add_time_window_constraints(new_task_info.get('est'), new_task_info.get('lft'))
+    new_task.add_duration_constraint(new_task_info.get('duration'))
+    # determine if task is independent, then call appropriate search function
+    driver_capabilities = tds.get_driver_capabilities()
+    if is_task_independent(new_task, driver_capabilities):
+        if schedule_independent_task(tds, new_task):
+            return  # Successfully scheduled
+    schedule_dependent_task(tds, new_task)
 
 
 # Only run this if executed directly (not imported)

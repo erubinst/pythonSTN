@@ -1,5 +1,6 @@
 import numpy as np
 from .timepoint import Timepoint
+from tds.slack_search import determine_slot_slack
 
 class Task:
     def __init__(self, 
@@ -43,10 +44,24 @@ class Task:
     def get_task_starting_flexibility(self):
         return self.get_due_date() - self.get_release_time() - self.get_duration()
     
+    def assigned_resources(self):
+        assigned_resources = []
+        for resource in self.tds.resources.values():
+            if self in resource.timeline.tasks:
+                assigned_resources.append(resource)
+        return assigned_resources
+    
     def get_task_slack(self):
         # sliding slack - difference between duration and task ub - lb
-        sliding_slack = self.get_duration() - (self.end.ub - self.start.lb)
-        # slot slack - who else can take the task in the current time window
+        sliding_slack = (self.end.ub - self.start.lb) - self.get_duration() + 1
+        slot_slack = 0
+        assigned_resources = self.assigned_resources()
+        for resource in assigned_resources:
+            slot_slacks = determine_slot_slack(self.tds, self, resource)
+            for s in slot_slacks:
+                slot_slack += s
+        total_slack = sliding_slack + slot_slack
+        return total_slack
 
     def update_task_name(self, new_name):
         old_name = self.name

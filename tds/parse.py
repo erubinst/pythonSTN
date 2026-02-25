@@ -39,6 +39,10 @@ def schedule_json_to_df(initial_schedule_path: str) -> pd.DataFrame:
     with open(initial_schedule_path, "r") as f:
         schedule_data = json.load(f)
 
+    return schedule_dict_to_df(schedule_data)
+
+
+def schedule_dict_to_df(schedule_data):
     rows = []
     for res_entry in schedule_data.get("resources", []):
         res_name = res_entry["resourceName"]
@@ -50,6 +54,7 @@ def schedule_json_to_df(initial_schedule_path: str) -> pd.DataFrame:
             })
 
     return pd.DataFrame(rows)
+    
 
 
 def load_resources_df(resources_dict):

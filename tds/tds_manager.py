@@ -11,6 +11,16 @@ class TDSManager:
         self.cz = Timepoint('zero', self, add_to_stn=False)
         self.travel_matrix = travel_matrix
 
+
+    def get_driver_capabilities(self):
+        driver_capabilities = set()
+
+        for resource in self.resources.values():
+            if 'traveler' in resource.capabilities:
+                driver_capabilities.update(resource.capabilities)
+
+        return driver_capabilities
+
     
     def sort_tasks_by_flexibility(self, task_lst=None):
         if task_lst is None:

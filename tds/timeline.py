@@ -50,16 +50,21 @@ class Timeline:
         return downtime_task
 
     
-    def remove_task(self, task):
+    def remove_task(self, task, generate_undo=False):
         task_idx = self.tasks.index(task)
         prev_task = self.tasks[task_idx - 1] if task_idx - 1 >= 0 else None
         next_task = self.tasks[task_idx + 1] if task_idx + 1 < len(self.tasks) else None
+        undo_stack = deque()
 
         # Remove sequence constraints
         if prev_task:
             prev_task.remove_constraint_btwn(task, (self.resource.name, "sequence"))
+            if generate_undo:
+                undo_stack.append((f'restoring sequence btwn {prev_task.name} and {task.name}', lambda: prev_task.constrain_before(task, (self.resource.name, "sequence"))))
         if next_task:
             task.remove_constraint_btwn(next_task, (self.resource.name, "sequence"))
+            if generate_undo:
+                undo_stack.append((f'restoring sequence btwn {task.name} and {next_task.name}', lambda: task.constrain_before(next_task, (self.resource.name, "sequence"))))
 
         # Remove travel constraints if applicable
         if prev_task and next_task:
@@ -67,14 +72,24 @@ class Timeline:
             task.remove_constraint_btwn(next_task, (self.resource.name, "travel"))
             travel_duration = self.tds.travel_matrix[prev_task.locations[-1]][next_task.locations[0]]
             prev_task.constrain_before(next_task, (self.resource.name, "travel"), travel_duration)
-
+            if generate_undo:
+                undo_stack.append((f'restoring travel btwn {prev_task.name} and {task.name}', lambda: prev_task.constrain_before(task, (self.resource.name, "travel"), travel_duration)))
+                undo_stack.append((f'restoring travel btwn {task.name} and {next_task.name}', lambda: task.constrain_before(next_task, (self.resource.name, "travel"), travel_duration)))
+                undo_stack.append((f'removing travel btwn {prev_task.name} and {next_task.name}', lambda: prev_task.remove_constraint_btwn(next_task, (self.resource.name, "travel"))))
         # Add sequence constraint between prev_task and next_task if both exist
         if prev_task and next_task:
             prev_task.constrain_before(next_task, (self.resource.name, "sequence"))
+            if generate_undo:
+                undo_stack.append((f'removing sequence btwn {prev_task.name} and {next_task.name}', lambda: prev_task.remove_constraint_btwn(next_task, (self.resource.name, "sequence"))))
 
         # Finally remove the task from the timeline
         self.tasks.remove(task)
         self.capability_assigned.pop(task_idx)
+        if generate_undo:
+            undo_stack.append((f'restoring {task.name} to {self.resource.name} timeline list', lambda: self.tasks.insert(task_idx, task)))
+            undo_stack.append((f'restoring {task.capabilities[0]} to {self.resource.name} timeline list', lambda: self.capability_assigned.insert(task_idx, task.capabilities[0])))
+
+        return undo_stack if generate_undo else None
 
     def print_tasks(self):
         task_names = []
@@ -137,9 +152,65 @@ class Timeline:
         # travel_task.add_duration_constraint(travel_time)
         # self.insert_task(travel_task, prev_task=prev_task, generate_travel=False)
 
+    def try_slot_no_travel(self, new_task, prior_task, capability):
+        new_task_duration = new_task.get_duration()
+        new_task_eft = new_task.end.lb
+        prior_task_idx = self.tasks.index(prior_task)
+        next_task_idx = prior_task_idx + 1
+        post_task = self.tasks[next_task_idx] if next_task_idx < len(self.tasks) else None
+        prior_eft = prior_task.end.lb
+        
+        if post_task is not None:
+            post_task_lst = post_task.start.ub
+            available_time = post_task_lst - prior_eft
+            required_time = new_task_duration
+            if available_time < required_time:
+                return False
+            if new_task_eft > post_task_lst:
+                return False
+            
+        return False
+    
+    def try_task_on_timeline_no_travel(self, prior_task, new_task, post_task, capability):
+        undo_stack = deque()
+
+        prior_idx = self.tasks.index(prior_task)
+        self.tasks.insert(prior_idx + 1, new_task)
+        self.capability_assigned.insert(prior_idx + 1, capability)
+        undo_stack.append((f'removing {new_task.name} from {self.resource.name} timeline list', lambda: self.tasks.remove(new_task)))
+        undo_stack.append((f'removing {capability} from {self.resource.name} timeline list', lambda: self.capability_assigned.pop(prior_idx + 1)))
+
+        # Constraint 1: sequence after prior_task
+        constraint1 = new_task.constrain_after(prior_task, (self.resource.name, "sequence"), print_inconsistencies=False)
+        if not constraint1:
+            execute_undo_functions(undo_stack)
+            return False
+        undo_stack.append((f'removing sequence btwn {prior_task.name} and {new_task.name}', lambda: prior_task.remove_constraint_btwn(new_task, (self.resource.name, "sequence"))))
+
+        if post_task:
+            # FIRST: Capture the old constraint values
+            ub_seq = prior_task.end.ub_edge_weight(post_task.start, (self.resource.name, "sequence"))
+            lb_seq = -prior_task.end.lb_edge_weight(post_task.start, (self.resource.name, "sequence"))
+            
+            # SECOND: Remove old constraints (relaxations - always succeed)
+            prior_task.remove_constraint_btwn(post_task, (self.resource.name, "sequence"))
+            # Capture values in lambda with default arguments
+            undo_stack.append((f'restoring sequence btwn {prior_task.name} and {post_task.name}', lambda lb=lb_seq, ub=ub_seq: 
+                            prior_task.restore_constraint_btwn(post_task, (self.resource.name, "sequence"), 
+                                                            min_gap=lb, max_gap=ub)))
+            
+            # THIRD: Add new constraints (these can fail)
+            constraint3 = post_task.constrain_after(new_task, (self.resource.name, "sequence"), print_inconsistencies=False)
+            if not constraint3:
+                execute_undo_functions(undo_stack)
+                return False            
+            undo_stack.append((f'removing sequence btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "sequence"))))
+
+        return undo_stack
+
 
     def try_slot(self, new_task, prior_task, capability):
-        new_task_duration = 0 # TODO: update to find duration constraint edge between start and end node of task
+        new_task_duration = new_task.get_duration()
         new_task_eft = new_task.end.lb
         prior_task_idx = self.tasks.index(prior_task)
         next_task_idx = prior_task_idx + 1
