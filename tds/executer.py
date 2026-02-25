@@ -4,7 +4,7 @@ from tds.tds_manager import TDSManager
 from tds.config import *
 from tds.parse import *
 from tds.utils import *
-from tds.search import is_task_independent, schedule_independent_task, schedule_independent_tasks, schedule_dependent_task
+from tds.search import schedule_independent_task, schedule_independent_tasks, schedule_dependent_task
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -70,7 +70,11 @@ def add_tasks_to_tds(tasks_df, tds_manager):
     """
     for _, row in tasks_df.iterrows():
         name = row["task_name"]
-        capabilities = [c.strip() for c in row["required_capabilities"].split(",")] if row["required_capabilities"] else []
+        # if capabilities is a string
+        if isinstance(row["required_capabilities"], str):
+            capabilities = [c.strip() for c in row["required_capabilities"].split(",")] if row["required_capabilities"] else []
+        else:
+            capabilities = row["required_capabilities"] if row["required_capabilities"] else []
         try:
             task = Task(
                 name=name,
@@ -110,7 +114,7 @@ def add_order_constraints_to_tds(order_constraints_df, tds_manager):
 
 # ---------------------------------------------------------
 # Routine for starting from given schedule like CP model
-def load_initial_timelines_to_tds(df, tds_manager):
+def load_initial_timelines_to_tds(df, tds_manager, downtimes_df=None):
     """
     Append tasks to each resource's timeline using a schedule DataFrame.
 
@@ -134,6 +138,29 @@ def load_initial_timelines_to_tds(df, tds_manager):
         for _, row in group.iterrows():
             order_name = row["order"].lower()
             capability = row["capability"].lower()
+
+            # if starts with {resource_name}_downtime
+            if order_name.startswith(f"{res_name}_downtime"):
+                # find downtime in request_df
+                if downtimes_df is not None:
+                    # pull downtimes where resourceTypes
+                    downtime_info = downtimes_df[downtimes_df['resource_name'] == res_name]
+                    dt_start = int(order_name.split('_')[-1])
+                    downtime_info = [d for d in downtime_info.to_dict(orient='records') if d['start_time'] == dt_start] 
+                    downtime_info = downtime_info[0] if downtime_info else None
+                    if downtime_info:
+                        location = downtime_info['location']
+                        start_time = downtime_info['start_time']
+                        end_time = downtime_info['end_time']
+                        duration = downtime_info['duration']
+
+                        downtime_task = resource.timeline.generate_downtime(start_time, 
+                                                                            end_time, 
+                                                                            duration,
+                                                                            location,
+                                                                            prev_task)
+                        prev_task = downtime_task
+                        continue
 
             task = tds_manager.tasks.get(order_name)
             if not task:
@@ -213,16 +240,23 @@ def calculate_uncoordinated_time(tds):
     return total_travel_uncoordinated
 
 
-def run_scheduler(request_path, travel_matrix_path, epoch_date):
-    resources_df, downtimes_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(
-        request_path, travel_matrix_path, epoch_date
+def upload_request(request, travel_matrix, epoch_date, add_downtimes=True):
+    resources_df, downtimes_df, tasks_df, order_constraints = load_resources_and_tasks(
+        request, epoch_date
     )
-    tds = TDSManager(travel_matrix_dict)
+    tds = TDSManager(travel_matrix)
     add_resources_to_tds(resources_df, tds)
-    add_downtimes_to_tds(downtimes_df, tds)
+    if add_downtimes:
+        add_downtimes_to_tds(downtimes_df, tds)
     add_tasks_to_tds(tasks_df, tds)
     # TODO fix order constraints
     # add_order_constraints_to_tds(order_constraints, tds)
+
+    return tds
+
+
+def run_scheduler(request, travel_matrix, epoch_date):
+    tds = upload_request(request, travel_matrix, epoch_date)
 
     dependent_tasks = schedule_independent_tasks(tds)
     for dep_task in dependent_tasks:
@@ -234,37 +268,62 @@ def run_scheduler(request_path, travel_matrix_path, epoch_date):
     return df
 
 
-def add_task(tds, new_task_info, current_schedule):
-    init_schedule = schedule_dict_to_df(current_schedule)
-    # add in resources
-    # add in tasks
-    # add in ordering of timelines
-    load_initial_timelines_to_tds(init_schedule, tds) #need to rewrite considering mongo setup, remove travel
-    new_task = Task(
-        name=new_task_info['task_name'],
-        capabilities=new_task_info['required_capabilities'],
-        tds_manager=tds,
-        order=None, #TODO set order
-        template=None, #TODO set template
-        locations = new_task_info['locations'],
-        task_type = new_task_info['task_type']
+def reload_tds(scenario, current_schedule):
+    resources_df, downtimes_df, tasks_df, order_constraints = load_resources_and_tasks(
+        scenario[0], scenario[2]
     )
-    new_task.add_time_window_constraints(new_task_info.get('est'), new_task_info.get('lft'))
-    new_task.add_duration_constraint(new_task_info.get('duration'))
-    # determine if task is independent, then call appropriate search function
-    driver_capabilities = tds.get_driver_capabilities()
-    if is_task_independent(new_task, driver_capabilities):
-        if schedule_independent_task(tds, new_task):
-            return  # Successfully scheduled
-    schedule_dependent_task(tds, new_task)
+    tds = TDSManager(scenario[1])
+    add_resources_to_tds(resources_df, tds)
+    add_tasks_to_tds(tasks_df, tds)
+    # load initial schedule form current_schedule, need to add in pickup/dropoff tasks since not in request
+    pd_tasks = current_schedule[current_schedule['order'].str.startswith('pickup_from_') | current_schedule['order'].str.startswith('dropoff_at_')]
+    # deduplicate pd_tasks by order name
+    pd_tasks = pd_tasks.drop_duplicates(subset=['order'])
+    for _, row in pd_tasks.iterrows():
+        order_name = row["order"].lower()
+        capability = row["capability"].lower()
+        try:
+            task = Task(
+                name=order_name,
+                capabilities=[capability],
+                tds_manager=tds,
+                order=None, #TODO set order
+                template=None, #TODO set template
+                locations = [row['location'], row['location']],
+                task_type = 'transport'
+            )
+        except ValueError as e:
+            print(f"Error creating task '{order_name}': {e}")
+            continue
+        task.add_duration_constraint(0)
+    load_initial_timelines_to_tds(current_schedule, tds, downtimes_df)
+    return tds
+
+
+
+def add_task(new_task_info, scenario, current_schedule):
+    tds = reload_tds(scenario, current_schedule)
+    # add new task in 
+    # assume task is df in format  ['task_name', 'required_capabilities', 'est', 'lft', 'duration']
+    add_tasks_to_tds(new_task_info, tds)
+    task_instance = tds.tasks[new_task_info['task_name'][0]]
+    # try to schedule
+    independent = schedule_independent_task(tds, task_instance)
+    if not independent:
+        schedule_dependent_task(tds, task_instance)
+    reduce_like_task_durations(tds)
+    display_current_schedule(tds, scenario[2])
+    return export_schedule_to_df(tds, scenario[2])
 
 
 # Only run this if executed directly (not imported)
 if __name__ == '__main__':
-    resources_df, downtimes_df, tasks_df, travel_matrix_dict, order_constraints = load_resources_and_tasks(
-        REQUEST_PATH, TRAVEL_MATRIX_PATH, EPOCH_DATE
+    request_data = path_to_dict(REQUEST_PATH)
+    travel_data = path_to_dict(TRAVEL_MATRIX_PATH)
+    resources_df, downtimes_df, tasks_df, order_constraints = load_resources_and_tasks(
+        request_data, EPOCH_DATE
     )
-    tds = TDSManager(travel_matrix_dict)
+    tds = TDSManager(travel_data)
     add_resources_to_tds(resources_df, tds)
     add_downtimes_to_tds(downtimes_df, tds)
     add_tasks_to_tds(tasks_df, tds)

@@ -1,6 +1,7 @@
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
+import json
 
 
 def minutes_since_cz(timestamp_str, cz_datetime):
@@ -8,6 +9,12 @@ def minutes_since_cz(timestamp_str, cz_datetime):
     dt = datetime.fromisoformat(timestamp_str)
     delta = dt - cz_datetime
     return int(delta.total_seconds() / 60)
+
+
+def path_to_dict(path):
+    with open(path, "r") as f:
+        data = json.load(f)
+    return data
 
 
 def execute_undo_functions(undo_info):

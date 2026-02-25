@@ -1,45 +1,35 @@
 from tds.utils import *
 from collections import deque
 
-# Pull out tasks that can be done by a driver and schedule
-def schedule_independent_tasks(tds):
-    # scheduling driver tasks - go through all tasks and try to schedule onto driver.  If not able to skip
-    driver_capabilities = tds.get_driver_capabilities()
-    dependent_tasks = []
-    sorted_tasks = tds.sort_tasks_by_flexibility()
-    for task in sorted_tasks:
-        if is_task_independent(task, driver_capabilities):
-            schedule_dependent_task(tds, task)
-        else:
-            dependent_tasks.append(task)
-            continue
-        assigned = schedule_independent_task(tds, task)
-        if not assigned:
-            dependent_tasks.append(task)
-    return dependent_tasks
-
-
 def schedule_independent_task(tds, task):
-    print(f"Trying to assign for {task.name}")
+    driver_capabilities = tds.get_driver_capabilities()
+    for cap in task.capabilities:
+        if cap not in driver_capabilities:
+            print(f"Task {task.name} is not independent (missing capability {cap})")
+            return False
+    print(f"Scheduling independent task {task.name}")
     assignments = search_through_capability_assignments(tds, task)
     if assignments:
-        print(f"Assigning for {task.name}")
         best_assignment, min_travel = min(assignments, key=lambda x: x[1])
         for assignment in best_assignment:
             resource, prior_task, capability = assignment
             resource.insert_task_to_timeline(task, capability, prev_task=prior_task, generate_travel=True)
         return True
     else:
-        print(f"No assignment found for {task.name}")
+        print(f"No valid assignment found for independent task {task.name}")
         return False
 
 
-def is_task_independent(task, driver_capabilities):
-    """
-    Returns True if the task is independent (all required capabilities
-    are covered by driver_capabilities), otherwise False.
-    """
-    return set(task.capabilities).issubset(driver_capabilities)
+# Pull out tasks that can be done by a driver and schedule
+def schedule_independent_tasks(tds):
+    # scheduling driver tasks - go through all tasks and try to schedule onto driver.  If not able to skip
+    dependent_tasks = []
+    sorted_tasks = tds.sort_tasks_by_flexibility()
+    for task in sorted_tasks:
+        scheduled = schedule_independent_task(tds, task)
+        if not scheduled:
+            dependent_tasks.append(task)
+    return dependent_tasks
 
 
 def schedule_dependent_task(tds, task):

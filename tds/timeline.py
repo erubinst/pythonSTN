@@ -513,7 +513,7 @@ class Timeline:
 
         for task in self.tasks:
             # Find which capability is assigned to this timeline's resource
-            cap_for_resource = "N/A"
+            cap_for_resource = self.capability_assigned[self.tasks.index(task)]
             # TODO Add resource capability here
 
             rows.append({
@@ -524,7 +524,8 @@ class Timeline:
                 "end_lb": np.abs(task.end.lb),
                 "end_ub": task.end.ub,
                 "capability": cap_for_resource,
-                "location": task.locations[0]
+                "location": task.locations[0],
+                "duration": task.get_duration()
             })
 
             # find travel constraint for ahead task unless on last task
@@ -542,7 +543,8 @@ class Timeline:
                         "end_lb": np.abs(task.end.lb) + travel_lb,
                         "end_ub": next_task.start.ub,
                         "capability": "travel",
-                        "location": None
+                        "location": None,
+                        "duration": task.get_duration()
                     })
 
         df = pd.DataFrame(rows)

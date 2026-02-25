@@ -4,10 +4,7 @@ import pandas as pd
 from .utils import *
 
 
-def load_request_data(request_path):
-    """Load request.json and return dicts for templates, orders, and resources."""
-    with open(request_path, "r") as f:
-        request_data = json.load(f)
+def load_request_data(request_data):
 
     templates = {t["name"]: t for t in request_data.get("templates", [])}
     orders = {o["name"]: o for o in request_data.get("orders", [])}
@@ -62,7 +59,7 @@ def load_resources_df(resources_dict):
     rows = []
     for name, r in resources_dict.items():
         rows.append({
-            "resource_name": name,
+            "resource_name": name.lower(),
             "capabilities": ", ".join(r.get("capabilities", [])),
             'location': r['location'],
         })
@@ -73,7 +70,7 @@ def load_downtimes_df(resources_dict, cz_datetime):
     for name, r in resources_dict.items():
         for downtime in r['downtimes']:
             rows.append({
-                'resource_name': name,
+                'resource_name': name.lower(),
                 'start_time': minutes_since_cz(downtime["start_time"], cz_datetime),
                 'end_time': minutes_since_cz(downtime["end_time"], cz_datetime),
                 'location': downtime['location'],
@@ -103,21 +100,13 @@ def load_tasks_df(templates_dict, orders_dict, cz_datetime):
     return pd.DataFrame(rows)
 
 
-def load_travel_matrix(travel_matrix_path):
-    """Load travel time matrix from JSON file."""
-    with open(travel_matrix_path, "r") as f:
-        travel_data = json.load(f)
-    return travel_data  
-
-
-def load_resources_and_tasks(request_path, travel_matrix_path, cz_datetime_str):
+def load_resources_and_tasks(request_dict, cz_datetime_str):
     cz_datetime = datetime.fromisoformat(cz_datetime_str)
-    request_data = load_request_data(request_path)
+    request_data = load_request_data(request_dict)
 
     resources_df = load_resources_df(request_data["resources"])
     downtimes_df = load_downtimes_df(request_data['resources'], cz_datetime)
     tasks_df = load_tasks_df(request_data["templates"], request_data["orders"], cz_datetime)
-    travel_matrix_dict = load_travel_matrix(travel_matrix_path)
     order_constraints = request_data["order_constraints"]
 
-    return resources_df, downtimes_df, tasks_df, travel_matrix_dict,order_constraints
+    return resources_df, downtimes_df, tasks_df, order_constraints
