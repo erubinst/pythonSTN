@@ -9,8 +9,9 @@ dependencies = [
     "numpy",
     "pandas",
     "networkx",
+    "plotly"
 ]
 
 [tool.setuptools]
-packages = ["tds", "stn"]
+packages = ["tds", "stn", "tds_slack"]
 py-modules = ["executer"]

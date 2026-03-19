@@ -1,14 +1,13 @@
 import numpy as np
 from .timepoint import Timepoint
-from tds.slack_search import determine_slot_slack
+from tds_slack.slack_search import determine_slot_slack
+from tds.search import remove_existing_transport_between
 
 class Task:
     def __init__(self, 
                  name, 
                  capabilities, 
                  tds_manager,
-                 order=None, 
-                 template=None, 
                  locations=[],
                  task_type = "NA"):
         """
@@ -18,8 +17,6 @@ class Task:
         self.name = name.lower()
         self.capabilities = {c.lower() for c in capabilities}
         self.tds = tds_manager
-        self.order = order
-        self.template = template
         self.locations = locations # start and end locations in a list
 
         # create timepoints through the manager so they are registered there

@@ -4,7 +4,7 @@ from tds.tds_manager import TDSManager
 from tds.config import *
 from tds.parse import *
 from tds.utils import *
-from tds.search import schedule_independent_task, schedule_independent_tasks, schedule_dependent_task
+from tds.search import find_independent_task_assignment, schedule_independent_tasks, schedule_dependent_task, find_dependent_task_assignment, apply_independent_assignment, apply_assignment
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -80,8 +80,6 @@ def add_tasks_to_tds(tasks_df, tds_manager):
                 name=name,
                 capabilities=capabilities,
                 tds_manager=tds_manager,
-                order=None, #TODO set order
-                template=None, #TODO set template
                 locations = row['locations'],
                 task_type = row['task_type']
             )
@@ -287,8 +285,6 @@ def reload_tds(scenario, current_schedule):
                 name=order_name,
                 capabilities=[capability],
                 tds_manager=tds,
-                order=None, #TODO set order
-                template=None, #TODO set template
                 locations = [row['location'], row['location']],
                 task_type = 'transport'
             )
@@ -301,19 +297,32 @@ def reload_tds(scenario, current_schedule):
 
 
 
-def add_task(new_task_info, scenario, current_schedule):
-    tds = reload_tds(scenario, current_schedule)
+def add_task(tds, new_task_info):
     # add new task in 
     # assume task is df in format  ['task_name', 'required_capabilities', 'est', 'lft', 'duration']
     add_tasks_to_tds(new_task_info, tds)
     task_instance = tds.tasks[new_task_info['task_name'][0]]
     # try to schedule
-    independent = schedule_independent_task(tds, task_instance)
-    if not independent:
-        schedule_dependent_task(tds, task_instance)
-    reduce_like_task_durations(tds)
-    display_current_schedule(tds, scenario[2])
-    return export_schedule_to_df(tds, scenario[2])
+    assignment = find_independent_task_assignment(tds, task_instance)
+    if not assignment:
+        print(f"Could not find independent assignment for new task {task_instance.name}, trying to find dependent assignment")
+        assignment = find_dependent_task_assignment(tds, task_instance)
+        pd.concat([pd.DataFrame({'task': [task_instance]}), assignment])
+    else:
+        assignment = pd.DataFrame({
+            'capability_assignment': assignment,
+            'total_ride_time': 0,
+            'total_travel_time': 0,
+            'transport_assignment': [],
+            'task': task_instance
+        })
+    return assignment
+
+
+def apply_assignment(tds, assignment):
+    if assignment['total_ride_time'] == 0:
+        # independent assignment
+        apply_independent_assignment(tds, )
 
 
 # Only run this if executed directly (not imported)

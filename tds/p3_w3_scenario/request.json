@@ -270,7 +270,7 @@
                     "duration": 70,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "dinner"
+                    "task_type": "social"
                 }
             ]
         },
@@ -288,7 +288,7 @@
                     "duration": 160,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "housework"
+                    "task_type": "cleaning"
                 }
             ]
         },
@@ -306,7 +306,7 @@
                     "duration":90,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "grocery_shopping"
+                    "task_type": "food_shopping"
                 }
             ]
         },
@@ -324,7 +324,7 @@
                     "duration":90,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "grocery_shopping"
+                    "task_type": "food_shopping"
                 }
             ]
         },
@@ -417,7 +417,7 @@
                     "duration": 90,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "grocery_shopping"
+                    "task_type": "food_shopping"
                 }
             ]
         },
@@ -435,7 +435,7 @@
                     "duration": 120,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "housework"
+                    "task_type": "cleaning"
                 }
             ]
         },
@@ -489,7 +489,7 @@
                     "duration": 120,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "church"
+                    "task_type": "social"
                 }
             ]
         },
@@ -508,7 +508,7 @@
                     "duration": 90,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "lunch"
+                    "task_type": "social"
                 }
             ]
         },
@@ -526,7 +526,7 @@
                     "duration": 120,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "paperwork"
+                    "task_type": "work"
                 }
             ]
         },
@@ -545,7 +545,7 @@
                     "duration": 60,
                     "start-location": "@start-location",
                     "end-location": "@end-location",
-                    "task_type": "appointment"
+                    "task_type": "work"
                 }
             ]
         }

@@ -10,7 +10,29 @@ class TDSManager:
         self.tasks = {}         # name or order -> Task
         self.cz = Timepoint('zero', self, add_to_stn=False)
         self.travel_matrix = travel_matrix
+        self.type_ranking = [
+            "medical_appointment",
+            "medication_pickup",
+            "food_shopping",
+            "cleaning",
+            "work",
+            "social"
+        ]
 
+    def sort_by_type_ranking(self):
+        ranked_tasks = []
+        for task in self.tasks.values():
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+            task_type = task.task_type
+            if task_type is not None:
+                rank = self.type_ranking.index(task_type)
+            else:
+                rank = len(self.type_ranking)  # lowest priority if type not found
+            ranked_tasks.append((rank, task.name, task))
+        ranked_tasks.sort()
+        sorted_tasks = [task for _, _, task in ranked_tasks]
+        return sorted_tasks
 
     def get_driver_capabilities(self):
         driver_capabilities = set()

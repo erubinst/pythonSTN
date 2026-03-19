@@ -1,22 +1,37 @@
 from tds.utils import *
 from collections import deque
 
-def schedule_independent_task(tds, task):
+def find_independent_task_assignment(tds, task):
     driver_capabilities = tds.get_driver_capabilities()
     for cap in task.capabilities:
         if cap not in driver_capabilities:
             print(f"Task {task.name} is not independent (missing capability {cap})")
-            return False
-    print(f"Scheduling independent task {task.name}")
+            return None
+    print(f"Finding assignment for independent task {task.name}")
     assignments = search_through_capability_assignments(tds, task)
     if assignments:
         best_assignment, min_travel = min(assignments, key=lambda x: x[1])
-        for assignment in best_assignment:
-            resource, prior_task, capability = assignment
-            resource.insert_task_to_timeline(task, capability, prev_task=prior_task, generate_travel=True)
-        return True
+        return best_assignment
     else:
         print(f"No valid assignment found for independent task {task.name}")
+        return None
+    
+
+def apply_independent_assignment(tds, task, assignment):
+    task = tds.tasks[task.name]
+    for resource, prior_task, capability in assignment:
+        print(f'Assigning {task.name} to {resource.name} after {prior_task.name}')
+        resource = tds.resources[resource.name]
+        prior_task = tds.tasks[prior_task.name]
+        resource.insert_task_to_timeline(task, capability, prev_task=prior_task)
+
+
+def schedule_independent_task(tds, task):
+    assignment = find_independent_task_assignment(tds, task)
+    if assignment:
+        apply_independent_assignment(tds, task, assignment)
+        return True
+    else:
         return False
 
 
@@ -24,7 +39,7 @@ def schedule_independent_task(tds, task):
 def schedule_independent_tasks(tds):
     # scheduling driver tasks - go through all tasks and try to schedule onto driver.  If not able to skip
     dependent_tasks = []
-    sorted_tasks = tds.sort_tasks_by_flexibility()
+    sorted_tasks = tds.sort_by_type_ranking()
     for task in sorted_tasks:
         scheduled = schedule_independent_task(tds, task)
         if not scheduled:
@@ -32,17 +47,23 @@ def schedule_independent_tasks(tds):
     return dependent_tasks
 
 
-def schedule_dependent_task(tds, task):
-    print(f'scheduling {task.name}')
+def find_dependent_task_assignment(tds, task):
+    print(f'Finding assignment for dependent task {task.name}')
     assignments = search_through_capability_assignments_with_transport(tds, task)
-    assignments = deduplicate_assignments(assignments, task.name)
-    # write_assignments_to_file(assignments, task)
+    if not assignments:
+        print(f'No valid assignment found for dependent task {task.name}')
+        return None
+    best_assignment = select_best_assignment(assignments, task.name)
+    return best_assignment
 
-    assignment = select_best_assignment(assignments, task.name)
-    if assignment is None:
-        return
 
-    apply_assignment(task, assignment)
+def schedule_dependent_task(tds, task):
+    assignment = find_dependent_task_assignment(tds, task)
+    if assignment:  
+        apply_assignment(tds, task, assignment)
+        return True
+    else:
+        return False
 
 
 def deduplicate_assignments(assignments, task_name):
@@ -82,8 +103,12 @@ def select_best_assignment(assignments, task_name):
     return best
 
 
-def apply_assignment(task, assignment):
+def apply_assignment(tds, task, assignment):
+    task = tds.tasks[task.name]
     for resource, prior_task, capability in assignment['capability_assignment']:
+        # find resource and prior task in tds
+        resource = tds.resources[resource.name]
+        prior_task = tds.tasks[prior_task.name]
         prepare_resource_for_assignment(resource, prior_task)
 
         print(f'Assigning {task.name} to {resource.name} after {prior_task.name}')
@@ -115,6 +140,7 @@ def prepare_resource_for_assignment(resource, prior_task):
 
 def assign_transport_tasks(resource, task, assignment):
     for t in assignment['transport_assignment']:
+        print(f'Checking transport assignment for {task.name} on resource {resource.name}')
         before_dropoff_task = t['before_dropoff_task']
 
         # Match this transport to the task/resource
@@ -511,6 +537,7 @@ def backtrack_capability_assignments_with_transport(
                                                         'after_pickup_undo': pu2,
                                                         'after_dropoff_undo': du2,
                                                         'removal_undo_stack': removal_undo_stack,
+                                                        'driven_resource': resource.name
                                                     })
 
                                                     found_any |= backtrack_capability_assignments_with_transport(
@@ -541,6 +568,7 @@ def backtrack_capability_assignments_with_transport(
                                                 'after_pickup_undo': None,
                                                 'after_dropoff_undo': None,
                                                 'removal_undo_stack': removal_undo_stack,
+                                                'driven_resource': resource.name
                                             })
 
                                             found_any |= backtrack_capability_assignments_with_transport(
@@ -626,6 +654,19 @@ def remove_existing_transport_between(timeline, prior_task, next_task, save_task
             removed_task.delete_task()
 
     return removal_undo_stack
+
+
+def remove_task_and_transport(tds, task):
+    """
+    Remove task and any associated transport tasks, don't save undo stack
+    """
+    for resource in tds.resources.values():
+        if task in resource.timeline.tasks:
+            task_idx = resource.timeline.tasks.index(task)
+            prior_task = resource.timeline.tasks[task_idx-1] if task_idx > 0 else None
+            next_task = resource.timeline.tasks[task_idx+1] if task_idx < len(resource.timeline.tasks)-1 else None
+            resource.remove_task_from_timeline(task)
+            remove_existing_transport_between(resource.timeline, prior_task, next_task, save_task=False)
 
 
 def restore_removed_transport(removal_undo_stack):
