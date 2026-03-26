@@ -307,7 +307,6 @@ def add_task(tds, new_task_info):
     if not assignment:
         print(f"Could not find independent assignment for new task {task_instance.name}, trying to find dependent assignment")
         assignment = find_dependent_task_assignment(tds, task_instance)
-        pd.concat([pd.DataFrame({'task': [task_instance]}), assignment])
     else:
         assignment = pd.DataFrame({
             'capability_assignment': assignment,
