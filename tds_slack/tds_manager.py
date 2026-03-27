@@ -34,13 +34,58 @@ class TDSManager:
         return sorted_tasks
     
 
+    def makespan(self):
+        max_time = 0
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                if np.abs(task.end.lb) > max_time:
+                    max_time = np.abs(task.end.lb)
+        return max_time
+    
+
+    def sum_max_slot_flexibility(self):
+        total_max_slot_flexibility = 0
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                total_max_slot_flexibility += task.get_max_slot_flexibility()
+        return total_max_slot_flexibility
+    
+
     def sum_total_flexibility(self):
         total_flexibility = 0
-        for task in self.tasks.values():
-            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
-                continue
-            total_flexibility += task.get_task_flexibility()
+        # loop through timelines
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                total_flexibility += task.get_task_flexibility()
         return total_flexibility
+    
+
+    def sum_total_slack(self):
+        total_slack = 0
+        # loop through timelines
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                total_slack += task.get_sliding_slack()
+        return total_slack
+    
+
+    def sum_total_slot(self):
+        total_slot = 0
+        # loop through timelines
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                total_slot += task.get_slot_flexibility()
+        return total_slot
 
 
     def sum_total_travel(self):
@@ -56,6 +101,7 @@ class TDSManager:
             )
         )
         return total_travel_weight                
+
 
     def add_task_to_manager(self, task):
         """Register a task with the manager."""

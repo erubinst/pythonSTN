@@ -3,6 +3,14 @@ import networkx as nx
 from queue import deque
 
 
+class STNInconsistencyError(Exception):
+    """Exception raised when propagation detects STN inconsistency."""
+
+    def __init__(self, message, affected_timepoint=None):
+        super().__init__(message)
+        self.affected_timepoint = affected_timepoint
+
+
 class STN(nx.MultiDiGraph):
     def __init__(self):
         super().__init__()
@@ -37,7 +45,8 @@ class STN(nx.MultiDiGraph):
         self.remove_node(tp)
 
     # release time, due date, sequence constraint, travel constraints, duration constraints
-    def add_constraint(self, tp1, tp2, constraint_type, lb=0, ub=np.inf, print_inconsistencies=True):
+    def add_constraint(self, tp1, tp2, constraint_type, lb=0, ub=np.inf,
+                       print_inconsistencies=True, return_affected_timepoint=False):
         # if constraint type is not already a tuple make it one
         constraint_type = constraint_type if isinstance(constraint_type, tuple) else (constraint_type,)
         # add an element "new" to the tuple
@@ -45,10 +54,15 @@ class STN(nx.MultiDiGraph):
         self.add_edge(tp1, tp2, key=constraint_type, weight=ub, data={'new_p': True})
         self.add_edge(tp2, tp1, key=constraint_type, weight=-lb, data={'new_p': True})
         # propagate constraints
-        return self.propagate([tp1, tp2], constraint_type, print_inconsistencies=print_inconsistencies)
+        return self.propagate(
+            [tp1, tp2],
+            constraint_type,
+            print_inconsistencies=print_inconsistencies,
+            return_affected_timepoint=return_affected_timepoint,
+        )
     
 
-    def delete_constraint(self, tp1, tp2, constraint_type, consistent=True):
+    def delete_constraint(self, tp1, tp2, constraint_type, consistent=True, print_inconsistencies=True, return_affected_timepoint=False):
         constraint_type = constraint_type if isinstance(constraint_type, tuple) else (constraint_type,)
         if not self.has_edge(tp1, tp2, key=constraint_type):
             return True  # Already deleted or never existed
@@ -77,7 +91,7 @@ class STN(nx.MultiDiGraph):
         self.remove_edge(tp2, tp1, key=constraint_type)
         
         if consistent:
-            return self.propagate(q, new_constraint=False)
+            return self.propagate(q, new_constraint=False, print_inconsistencies=print_inconsistencies, return_affected_timepoint=return_affected_timepoint)
         
         return True
 
@@ -176,7 +190,8 @@ class STN(nx.MultiDiGraph):
         edge['data']['lb_p'] = False
 
 
-    def propagate(self, initial_timepoints, new_constraint=False, print_inconsistencies=True):
+    def propagate(self, initial_timepoints, new_constraint=False,
+                  print_inconsistencies=True, return_affected_timepoint=False):
         """
         Propagate constraints from initial timepoints.
         
@@ -185,8 +200,12 @@ class STN(nx.MultiDiGraph):
             new_constraint: If True, this is a new constraint being added (enables undo on failure)
             print_inconsistencies: Whether to print error messages
         
-        Returns:
-            True if propagation succeeded, False if inconsistency detected
+                Returns:
+                        - If return_affected_timepoint is False (default):
+                            True if propagation succeeded, False if inconsistency detected
+                        - If return_affected_timepoint is True:
+                            (True, None) on success, (False, <affected_timepoint>) on inconsistency
+
         """
         queue = deque(initial_timepoints)
         undo_info = deque() if new_constraint else None
@@ -228,11 +247,17 @@ class STN(nx.MultiDiGraph):
                             
                             # Check for inconsistency
                             if tp_to_node['data']['ub'] < -tp_to_node['data']['lb']:
-                                raise Exception(f"Inconsistent STN: UB < LB at {tp_to}")
+                                raise STNInconsistencyError(
+                                    f"Inconsistent STN: UB < LB at {tp_to}",
+                                    affected_timepoint=tp_to,
+                                )
                             
                             # Check for cycle on new constraints
                             if new_constraint and data.get('new_p', False) and data.get('ub_p', False):
-                                raise Exception(f"Inconsistent STN: revisiting edge ({tp}, {tp_to})")
+                                raise STNInconsistencyError(
+                                    f"Inconsistent STN: revisiting edge ({tp}, {tp_to})",
+                                    affected_timepoint=tp_to,
+                                )
                             
                             data['ub_p'] = True
                             if tp_to not in queue:
@@ -263,11 +288,17 @@ class STN(nx.MultiDiGraph):
                             
                             # Check for inconsistency
                             if tp_from_node['data']['ub'] < -tp_from_node['data']['lb']:
-                                raise Exception(f"Inconsistent STN: UB < LB at {tp_from}")
+                                raise STNInconsistencyError(
+                                    f"Inconsistent STN: UB < LB at {tp_from}",
+                                    affected_timepoint=tp_from,
+                                )
                             
                             # Check for cycle on new constraints
                             if new_constraint and data.get('new_p', False) and data.get('lb_p', False):
-                                raise Exception(f"Inconsistent STN: revisiting edge ({tp_from}, {tp})")
+                                raise STNInconsistencyError(
+                                    f"Inconsistent STN: revisiting edge ({tp_from}, {tp})",
+                                    affected_timepoint=tp_from,
+                                )
                             
                             data['lb_p'] = True
                             if tp_from not in queue:
@@ -291,6 +322,8 @@ class STN(nx.MultiDiGraph):
                         self.rename_edge_key(tp2, tp1, constraint_type, new_key)
                         break
             
+            if return_affected_timepoint:
+                return True, None
             return True
         
         except Exception as e:
@@ -308,8 +341,12 @@ class STN(nx.MultiDiGraph):
                             self.delete_constraint(tp1, tp2, key, consistent=False)
                             break
             
+            affected_timepoint = getattr(e, 'affected_timepoint', None)
             if print_inconsistencies:
                 print(e)
+
+            if return_affected_timepoint:
+                return False, affected_timepoint
             return False
         
 

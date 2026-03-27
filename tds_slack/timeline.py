@@ -47,8 +47,17 @@ class Timeline:
     
 
     def find_overlapping_task(self, new_task):
+        # we need to include travel time when considering overlap as well
+        # we can access travel time from task to new task and from new task to task but how do we know which one to use? we can check both and if either one causes overlap, we consider it overlapping
+        # 
+        new_task_start_location = new_task.locations[0]
+        new_task_end_location = new_task.locations[-1]
         for task in self.tasks:
-            if np.abs(task.start.lb) < new_task.end.ub and np.abs(task.end.lb) > new_task.start.ub:
+            task_start_location = task.locations[0]
+            task_end_location = task.locations[-1]
+            travel_time_to_new_task = self.tds.travel_matrix[task_end_location][new_task_start_location]
+            travel_time_from_new_task = self.tds.travel_matrix[new_task_end_location][task_start_location]
+            if (np.abs(task.start.lb) - travel_time_to_new_task < new_task.end.ub and np.abs(task.end.lb) + travel_time_from_new_task > new_task.start.ub):
                 return task
         return None
     
@@ -273,7 +282,7 @@ class Timeline:
         return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel)
 
 
-    def map_feasible_slots(self, new_task, metrics, starting_task=None):
+    def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
         if starting_task is None:
             starting_task = self.tasks[0] if self.tasks else None
 
@@ -285,6 +294,16 @@ class Timeline:
         prior_task_idx = self.tasks.index(prior_task)
 
         while prior_task is not None and not prior_task.name.endswith('_footer'):
+
+            if prior_slot and prior_slot == prior_task:
+                # skip this slot and move to the next one
+                prior_task_idx += 1
+                if prior_task_idx < len(self.tasks):
+                    prior_task = self.tasks[prior_task_idx]
+                else:
+                    prior_task = None
+                continue
+
             prior_eft = prior_task.end.lb
             if prior_eft > new_task_lst:
                 break
@@ -297,11 +316,19 @@ class Timeline:
                 # add in all metrics in metrics dict to above dict
                 if 'slack' in metrics:
                     new_task_slack = new_task.get_sliding_slack()
-                    results[-1]['task1_slack'] = new_task_slack
+                    results[-1]['slack'] = new_task_slack
                 if 'travel' in metrics:
-                    results[-1]['total_travel'] = self.tds.sum_total_travel()
+                    results[-1]['travel'] = self.tds.sum_total_travel()
                 if 'flexibility' in metrics:
-                    results[-1]['total_flexibility'] = self.tds.sum_total_flexibility()
+                    results[-1]['flexibility'] = self.tds.sum_total_flexibility()
+                if 'makespan' in metrics:
+                    results[-1]['makespan'] = self.tds.makespan()
+                if 'slots' in metrics:
+                    results[-1]['slots'] = self.tds.sum_total_slot()
+                if 'total_slack' in metrics:
+                    results[-1]['total_slack'] = self.tds.sum_total_slack()
+                if 'max_slot' in metrics:
+                    results[-1]['max_slot'] = self.tds.sum_max_slot_flexibility()
                 execute_undo_functions(undo_stack)
 
             prior_task_idx += 1

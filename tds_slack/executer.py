@@ -105,9 +105,6 @@ def send_event(tds, row):
         return removed_tasks
 
     while True:
-        print(f'Current dt task bounds: start {dt_task.start.lb, dt_task.start.ub}, end {dt_task.end.lb, dt_task.end.ub}')
-        for task in resource.timeline.tasks:
-            print(f'Task {task.name} on resource {resource.name} with start {task.start.lb, task.start.ub} and end {task.end.lb, task.end.ub}')
         result, affected_timepoint = resource.insert_task_to_timeline(
             dt_task,
             f'{resource.name}_presence',
@@ -170,48 +167,52 @@ def send_event(tds, row):
     return removed_tasks
 
 
-def send_events(tds, events_df):
+def send_events(tds, events_df, objective_metric="slack", minimize=True):
     # loop through events and add downtime
+    unscheduled_tasks = []
     for _, row in events_df.iterrows():
         removed_tasks = send_event(tds, row)
         print('---')
         print(removed_tasks)
         for task in removed_tasks:
-            schedule_attempt = schedule_task(tds, task, objective_metric="slack", minimize=False)
+            schedule_attempt = schedule_task(tds, task, objective_metric=objective_metric, minimize=minimize)
             if schedule_attempt is False:
                 print(f"Could not reschedule task {task.name} after removal due to downtime event. Task remains unscheduled.")
+                unscheduled_tasks.append(task)
             else:
                 print(f"Successfully rescheduled task {task.name} after removal due to downtime event.")
         print('===')
+    return unscheduled_tasks
 
 
 
-def run_scheduler(request, travel_matrix, epoch_date=None):
+def run_scheduler(request, travel_matrix, objective_metric="flexibility", epoch_date=None, minimize=True, metrics=None):
     tds = upload_request(request, travel_matrix, epoch_date)
 
     # schedule tasks 
     for task in tds.sort_tasks_by_flexibility():
-        best_value = schedule_task(tds, task, objective_metric="slack", minimize=False)
+        best_value = schedule_task(tds, task, objective_metric=objective_metric, minimize=minimize)
     
     # df = export_schedule_to_df(tds)
     return tds
 
 
-scenarios_dir = '/Users/erubinst/ICLL/pythonSTN/slack_scenarios/'
-scenario = 'scenario_20260324_230901'
-request_path = scenarios_dir + scenario + '/request.json'
-travel_path = scenarios_dir + scenario + '/travel_matrix.json'
-unexpected_downtimes_path = scenarios_dir + scenario + '/future_downtimes.json'
+# scenarios_dir = 'slack_scenarios/'
+# scenario = 'scenario_20260326_225541'
+# request_path = scenarios_dir + scenario + '/request.json'
+# travel_path = scenarios_dir + scenario + '/travel_matrix.json'
+# unexpected_downtimes_path = scenarios_dir + scenario + '/future_downtimes.json'
 
-with open(request_path, 'r') as f:
-    request_dict = json.load(f)
-with open(travel_path, 'r') as f:
-    travel_matrix = json.load(f)
-events_df = pd.read_json(unexpected_downtimes_path)
+# with open(request_path, 'r') as f:
+#     request_dict = json.load(f)
+# with open(travel_path, 'r') as f:
+#     travel_matrix = json.load(f)
+# events_df = pd.read_json(unexpected_downtimes_path)
 
-tds = run_scheduler(request_dict, travel_matrix)
-display_current_schedule(tds)
-removed_tasks = send_events(tds, events_df)
-display_current_schedule(tds)
+# tds = run_scheduler(request_dict, travel_matrix, objective_metric="makespan", minimize=True)
+# display_current_schedule(tds)
+# unscheduled_tasks = send_events(tds, events_df, objective_metric="makespan", minimize=True)
+# display_current_schedule(tds)
+# print(f"Unscheduled tasks after processing events: {[task.name for task in unscheduled_tasks]}")
 
 

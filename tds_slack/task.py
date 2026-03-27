@@ -1,6 +1,6 @@
 import numpy as np
 from .timepoint import Timepoint
-from tds_slack.slack_search import determine_slot_slack
+from tds_slack.slack_search import determine_slot_slack, determine_max_slot_slack
 
 class Task:
     def __init__(self, 
@@ -49,22 +49,33 @@ class Task:
         # print(f"Task {self.name} sliding slack calculation: end.ub={self.end.ub}, start.lb={self.start.lb}, duration={self.get_duration()}, sliding_slack={sliding_slack}")
         return sliding_slack
     
-    def get_slot_flexibility(self):
-        # slot slack - sum of task1_slack on all alternate slots for this task on its current resource
+    def get_max_slot_flexibility(self):
+        # find alternate slot with biggest slack
+        current_resource = None
         for resource in self.tds.resources.values():
             if self in resource.timeline.tasks:
                 current_resource = resource
                 break
-        slot_slack = 0
-        slot_slack += determine_slot_slack(self.tds, self, current_resource)
+        max_slot_slack = determine_max_slot_slack(self.tds, self, current_resource)
+        return max_slot_slack
+    
+
+    def get_slot_flexibility(self):
+        # slot slack - sum of task1_slack on all alternate slots for this task 
+        current_resource = None
+        for resource in self.tds.resources.values():
+            if self in resource.timeline.tasks:
+                current_resource = resource
+                break
+        slot_slack = determine_slot_slack(self.tds, self, current_resource)
         # print(f"Task {self.name} slot flexibility: {slot_slack}")
         return slot_slack
     
     def get_task_flexibility(self):
         # sliding slack - difference between duration and task ub - lb
         sliding_slack = self.get_sliding_slack()
-        # slot slack - sum of task1_slack on all alternate slots for this task on
-        slot_slack = self.get_slot_flexibility()
+        # slot slack - sum of task1_slack on all alternate slots for this task 
+        slot_slack = self.get_max_slot_flexibility()
         total_flexibility = sliding_slack + slot_slack
         return total_flexibility
 
