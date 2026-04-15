@@ -534,14 +534,25 @@ class Timeline:
                 next_task = self.tasks[task_idx + 1]
                 travel_lb = np.abs(task.end.lb_edge_weight(next_task.start, (self.resource.name, "travel")))
                 if travel_lb != np.inf and travel_lb != 0:
-                    # adding 0.5 for display purposes to show the 0 time pickup dropoff
+                    # if previous task is at home, link travel to next task
+                    # if previous task is not at home, link travel to current task
+                    if next_task.locations[-1] != self.resource.base_location:
+                        start_lb = np.abs(next_task.start.lb) - travel_lb
+                        start_ub = next_task.start.ub - travel_lb
+                        end_lb = np.abs(next_task.start.lb)
+                        end_ub = next_task.start.ub
+                    else:
+                        start_lb = np.abs(task.end.lb)
+                        start_ub = task.end.ub
+                        end_lb = np.abs(task.end.lb) + travel_lb
+                        end_ub = task.end.ub + travel_lb
                     rows.append({
                         "resource": self.resource.name,
                         "task_name": f"travel_{task.name}_to_{next_task.name}",
-                        "start_lb": np.abs(task.end.lb),
-                        "start_ub": next_task.start.ub - travel_lb,
-                        "end_lb": np.abs(task.end.lb) + travel_lb,
-                        "end_ub": next_task.start.ub,
+                        "start_lb": start_lb,
+                        "start_ub": start_ub,
+                        "end_lb": end_lb,
+                        "end_ub": end_ub,
                         "capability": "travel",
                         "location": None,
                         "duration": task.get_duration()

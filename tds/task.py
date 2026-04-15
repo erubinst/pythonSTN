@@ -1,6 +1,6 @@
 import numpy as np
 from .timepoint import Timepoint
-from tds_slack.slack_search import determine_slot_slack
+# from tds_slack.slack_search import determine_slot_slack
 from tds.search import remove_existing_transport_between
 
 class Task:
@@ -48,17 +48,17 @@ class Task:
                 assigned_resources.append(resource)
         return assigned_resources
     
-    def get_task_slack(self):
-        # sliding slack - difference between duration and task ub - lb
-        sliding_slack = (self.end.ub - self.start.lb) - self.get_duration() + 1
-        slot_slack = 0
-        assigned_resources = self.assigned_resources()
-        for resource in assigned_resources:
-            slot_slacks = determine_slot_slack(self.tds, self, resource)
-            for s in slot_slacks:
-                slot_slack += s
-        total_slack = sliding_slack + slot_slack
-        return total_slack
+    # def get_task_slack(self):
+    #     # sliding slack - difference between duration and task ub - lb
+    #     sliding_slack = (self.end.ub - self.start.lb) - self.get_duration() + 1
+    #     slot_slack = 0
+    #     assigned_resources = self.assigned_resources()
+    #     for resource in assigned_resources:
+    #         slot_slacks = determine_slot_slack(self.tds, self, resource)
+    #         for s in slot_slacks:
+    #             slot_slack += s
+    #     total_slack = sliding_slack + slot_slack
+    #     return total_slack
 
     def update_task_name(self, new_name):
         old_name = self.name
