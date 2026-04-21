@@ -329,6 +329,8 @@ class Timeline:
                     results[-1]['total_slack'] = self.tds.sum_total_slack()
                 if 'max_slot' in metrics:
                     results[-1]['max_slot'] = self.tds.sum_max_slot_flexibility()
+                if 'earliest_completion_time' in metrics:
+                    results[-1]['earliest_completion_time'] = self.tds.sum_completion_time_diff()
                 execute_undo_functions(undo_stack)
 
             prior_task_idx += 1

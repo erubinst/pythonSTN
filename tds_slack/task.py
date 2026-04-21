@@ -94,8 +94,13 @@ class Task:
         for resource in self.tds.resources.values():
             if self in resource.timeline.tasks:
                 resource.timeline.remove_task(self)
+    
+    def get_completion_time_diff(self):
+        # get the difference between the current completion time and the due date
+        completion_time = np.abs(self.end.lb)
+        due_date = self.get_due_date()
+        return due_date - completion_time
         
-
     def add_time_window_constraints(self, start_time, end_time):
         self.tds.cz.add_constraint(self.start, ("all", "release_time"), start_time)
         self.tds.cz.add_constraint(self.end, ("all","due_date"), 0, end_time)

@@ -34,6 +34,15 @@ class TDSManager:
         return sorted_tasks
     
 
+    def sum_completion_time_diff(self):
+        total_diff = 0
+        for task in self.tasks.values():
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                continue
+            total_diff += task.get_completion_time_diff()
+        return total_diff
+    
+
     def makespan(self):
         max_time = 0
         for resource in self.resources.values():

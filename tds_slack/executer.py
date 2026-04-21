@@ -3,7 +3,7 @@ from tds_slack.task import Task
 from tds_slack.tds_manager import TDSManager
 from tds_slack.parse import *
 from tds_slack.utils import *
-from tds_slack.slack_search import schedule_task
+from tds_slack.slack_search import schedule_task, search_feasible_slots
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -183,6 +183,25 @@ def send_events(tds, events_df, objective_metric="slack", minimize=True):
                 print(f"Successfully rescheduled task {task.name} after removal due to downtime event.")
         print('===')
     return unscheduled_tasks
+
+
+def send_events_no_reschedule(tds, events_df, objective_metric="slack"):
+    # loop through events and add downtime
+    unscheduled_tasks = []
+    alternative_options = 0 # count of alternate options found for removed tasks
+    removed_task_count = 0
+    for _, row in events_df.iterrows():
+        removed_tasks = send_event(tds, row)
+        removed_task_count = len(removed_tasks)
+        for task in removed_tasks:
+            feasible_slots = search_feasible_slots(tds, task, metrics=['slack'])
+            if not feasible_slots:
+                unscheduled_tasks.append(task)
+            else:
+                for slot in feasible_slots:
+                    alternative_options += slot['slack']
+            break # only process one event for testing
+    return unscheduled_tasks, alternative_options, removed_task_count
 
 
 

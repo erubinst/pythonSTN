@@ -52,6 +52,11 @@ def convert_times_to_realtime(df, epoch_date_str):
 
 #TODO update for slack scenario
 def display_current_schedule(tds, epoch_date_str=None):
+    fig = build_schedule_figure(tds, epoch_date_str=epoch_date_str)
+    fig.show()
+
+
+def build_schedule_figure(tds, epoch_date_str=None):
     df = tds.export_to_df()
 
     # if task name contains 'travel', set to different color
@@ -123,8 +128,12 @@ def display_current_schedule(tds, epoch_date_str=None):
         insidetextanchor='middle',
         textfont_size=20
     )
+    return fig
 
-    fig.show()
+
+def save_current_schedule_html(tds, output_path, epoch_date_str=None):
+    fig = build_schedule_figure(tds, epoch_date_str=epoch_date_str)
+    fig.write_html(output_path)
 
 
 def export_schedule_to_df(tds, epoch_date_str=None):
