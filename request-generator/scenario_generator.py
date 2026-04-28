@@ -153,7 +153,8 @@ def make_templates(n_tasks: int, resources: list[dict],
 
 
 def make_orders(templates: list[dict], locations: list[str],
-                horizon: int, due_date_slack_range: tuple[int, int]) -> list[dict]:
+                horizon: int, due_date_slack_range: tuple[int, int],
+                max_travel: int) -> list[dict]:
     """
     One order per template, quantity always 1.
     Due date = earliest_start + task_duration + random slack in due_date_slack_range.
@@ -164,8 +165,10 @@ def make_orders(templates: list[dict], locations: list[str],
         start_loc = random.choice(locations)
         end_loc = start_loc
 
-        # Earliest start somewhere in first half of horizon
-        earliest = random.randint(0, max(0, horizon // 2))
+        # Let orders start anywhere that still leaves room for the task duration
+        # plus the maximum travel time.
+        latest_earliest = max(0, horizon - (subtask_duration + max_travel))
+        earliest = random.randint(0, latest_earliest)
         # Due date with variable slack
         slack = random.randint(*due_date_slack_range)
         due = min(horizon, earliest + subtask_duration + slack)
@@ -193,6 +196,17 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
     multi-task displacement so that recovery depends on finding exactly one alternate slot.
     """
     future_downtimes = []
+
+    # Track used downtime start times per resource so names like
+    # "resourceX_downtime_<start>" remain unique.
+    used_starts_by_resource: dict[str, set[int]] = {}
+    for resource in resources:
+        res_name = resource["name"]
+        used_starts_by_resource[res_name] = set(
+            int(dt.get("start_time", -1))
+            for dt in resource.get("downtimes", [])
+            if "start_time" in dt
+        )
 
     if not orders:
         return future_downtimes
@@ -257,8 +271,16 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
         min_start = max(0, earliest - 10)
         max_start = max(min_start, due - downtime_duration)
 
-        start = random.randint(min_start, max_start)
+        candidate_starts = [
+            s for s in range(min_start, max_start + 1)
+            if s not in used_starts_by_resource[resource["name"]]
+        ]
+        if not candidate_starts:
+            continue
+
+        start = random.choice(candidate_starts)
         end = min(horizon, start + downtime_duration)
+        used_starts_by_resource[resource["name"]].add(start)
 
         future_downtimes.append({
             "resource": resource["name"],
@@ -298,7 +320,13 @@ def generate_scenario(
     resources = make_resources(n_resources, locations, caps_range,
                                downtime_prob, horizon, capability_overlap)
     templates = make_templates(n_tasks, resources, task_duration_range)
-    orders = make_orders(templates, locations, horizon, due_date_slack_range)
+    orders = make_orders(
+        templates,
+        locations,
+        horizon,
+        due_date_slack_range,
+        travel_time_range[1],
+    )
     future_downtimes = make_future_downtimes(resources, orders, templates, locations,
                                              horizon, future_downtime_count)
 

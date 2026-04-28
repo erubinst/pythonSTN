@@ -41,10 +41,8 @@ def convert_times_to_realtime(df, epoch_date_str):
     df['start_ub'] = df['start_ub'].dt.tz_localize('UTC')
     df['end_ub'] = df['end_ub'].dt.tz_localize('UTC')
 
-    df["start_lb_time"] = df["start_lb"].dt.strftime("%H:%M")
-    df["end_lb_time"]   = df["end_lb"].dt.strftime("%H:%M")
-    df["start_ub_time"] = df["start_ub"].dt.strftime("%H:%M")
-    df["end_ub_time"]   = df["end_ub"].dt.strftime("%H:%M")
+    df['display_start'] = df['start_lb']
+    df['display_end'] = df['end_lb']
 
     return df
 
