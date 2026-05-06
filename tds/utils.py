@@ -80,26 +80,26 @@ def display_current_schedule(tds, epoch_date_str):
     # ---------------------------------------------------------
     epsilon = pd.Timedelta(minutes=0.5)  # can be 1s or 30s if you prefer smaller
 
-    df['end_lb_plot'] = df['end_lb']  # new plotting end time
-    zero_mask = df['start_lb'] == df['end_lb']
+    df['end_lb_plot'] = df['display_end']  # new plotting end time
+    zero_mask = df['display_start'] == df['display_end']
     df.loc[zero_mask, 'end_lb_plot'] = df.loc[zero_mask, 'end_lb'] + epsilon
     # ---------------------------------------------------------
 
     fig = px.timeline(
         df,
-        x_start="start_lb",
+        x_start="display_start",
         x_end="end_lb_plot",  # <<< use modified end time here
         y="resource",
         text="task_name",
         color="type",
         hover_data={
-            "start_lb": False,
-            "end_lb": False,
+            "display_start": False,
+            "display_end": False,
             "resource": False,
-            "start_lb_time": True,
-            "start_ub_time": True,
-            "end_lb_time": True,
-            "end_ub_time": True,
+            "start_lb": True,
+            "start_ub": True,
+            "end_lb": True,
+            "end_ub": True,
             "capability": True,
         },
         color_discrete_map=color_discrete_map

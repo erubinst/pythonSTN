@@ -14,6 +14,7 @@ class TDSManager:
             "medical_appointment",
             "medication_pickup",
             "food_shopping",
+            "shopping",
             "cleaning",
             "work",
             "social"

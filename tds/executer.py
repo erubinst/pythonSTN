@@ -192,7 +192,7 @@ def add_return_home_tasks(tds):
 
 def reduce_like_task_durations(tds):
     task_type_percents = {
-        'grocery_shopping': 0.65,
+        'shopping': 0.65,
     }
 
     same_task_groups = tds.same_task_groups()
@@ -300,7 +300,9 @@ def reload_tds(scenario, current_schedule):
 def add_task(tds, new_task_info):
     # add new task in 
     # assume task is df in format  ['task_name', 'required_capabilities', 'est', 'lft', 'duration']
+    print(f"Adding new task {new_task_info['task_name'][0]} with info {new_task_info.to_dict(orient='records')[0]} to TDS")
     add_tasks_to_tds(new_task_info, tds)
+    print(f"Added new task {new_task_info['task_name'][0]} to TDS")
     task_instance = tds.tasks[new_task_info['task_name'][0]]
     # try to schedule
     assignment = find_independent_task_assignment(tds, task_instance)
@@ -308,13 +310,13 @@ def add_task(tds, new_task_info):
         print(f"Could not find independent assignment for new task {task_instance.name}, trying to find dependent assignment")
         assignment = find_dependent_task_assignment(tds, task_instance)
     else:
-        assignment = pd.DataFrame({
+        assignment = pd.DataFrame([{
             'capability_assignment': assignment,
             'total_ride_time': 0,
             'total_travel_time': 0,
             'transport_assignment': [],
             'task': task_instance
-        })
+        }])
     return assignment
 
 
@@ -348,6 +350,9 @@ if __name__ == '__main__':
     
     # add_return_home_tasks(tds)
 
+    # export to csv
+    df = export_schedule_to_df(tds, EPOCH_DATE)
+    df.to_csv("schedule.csv", index=False)
     display_current_schedule(tds, EPOCH_DATE)
 
 

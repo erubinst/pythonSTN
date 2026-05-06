@@ -1,6 +1,23 @@
 from tds.utils import *
 from collections import deque
 
+
+def get_task_location_options(task):
+    """Return the possible start/end locations for an independent task."""
+    if not task.locations:
+        return []
+
+    start_locations = task.locations[0]
+    if isinstance(start_locations, (list, tuple, set)):
+        return list(dict.fromkeys(start_locations))
+
+    return [start_locations]
+
+
+def set_task_location(task, location):
+    """Force a task to use one concrete location for both start and end."""
+    task.locations = [location, location]
+
 def find_independent_task_assignment(tds, task):
     driver_capabilities = tds.get_driver_capabilities()
     for cap in task.capabilities:
@@ -8,13 +25,40 @@ def find_independent_task_assignment(tds, task):
             print(f"Task {task.name} is not independent (missing capability {cap})")
             return None
     print(f"Finding assignment for independent task {task.name}")
-    assignments = search_through_capability_assignments(tds, task)
-    if assignments:
-        best_assignment, min_travel = min(assignments, key=lambda x: x[1])
-        return best_assignment
-    else:
-        print(f"No valid assignment found for independent task {task.name}")
+
+    original_locations = list(task.locations)
+    location_options = get_task_location_options(task)
+    if not location_options:
+        print(f"No location options available for independent task {task.name}")
         return None
+
+    best_assignment = None
+    best_location = None
+    best_travel = None
+
+    for location in location_options:
+        set_task_location(task, location)
+        assignments = search_through_capability_assignments(tds, task)
+        if not assignments:
+            continue
+
+        candidate_assignment, candidate_travel = min(assignments, key=lambda x: x[1])
+        print(
+            f"Candidate location {location} for {task.name} has minimum travel {candidate_travel}"
+        )
+
+        if best_travel is None or candidate_travel < best_travel:
+            best_assignment = candidate_assignment
+            best_location = location
+            best_travel = candidate_travel
+
+    if best_assignment:
+        set_task_location(task, best_location)
+        return best_assignment
+
+    task.locations = original_locations
+    print(f"No valid assignment found for independent task {task.name}")
+    return None
     
 
 def apply_independent_assignment(tds, task, assignment):
@@ -39,7 +83,7 @@ def schedule_independent_task(tds, task):
 def schedule_independent_tasks(tds):
     # scheduling driver tasks - go through all tasks and try to schedule onto driver.  If not able to skip
     dependent_tasks = []
-    sorted_tasks = tds.sort_by_type_ranking()
+    sorted_tasks = tds.sort_tasks_by_flexibility()
     for task in sorted_tasks:
         scheduled = schedule_independent_task(tds, task)
         if not scheduled:
