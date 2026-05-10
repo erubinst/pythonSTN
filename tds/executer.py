@@ -192,7 +192,8 @@ def add_return_home_tasks(tds):
 
 def reduce_like_task_durations(tds):
     task_type_percents = {
-        'shopping': 0.65,
+        'food_shopping': 0.65,
+        'shopping': 0.55
     }
 
     same_task_groups = tds.same_task_groups()

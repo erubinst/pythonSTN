@@ -315,11 +315,6 @@ def backtrack_capability_assignments(tds, task, capabilities, capability_idx, cu
         total_travel = tds.sum_total_travel()
         # Found a valid complete assignment - store with travel cost
         all_assignments.append((current_assignment.copy(), total_travel))
-        # Undo this assignment to try other combinations
-        # TODO: make undo_stacks a stack of stacks
-        for i in range(len(undo_stacks) - 1, -1, -1):
-            resource = current_assignment[i][0]
-            execute_undo_functions(undo_stacks[i])
         return
     
     # Try assigning current capability to each compatible resource
