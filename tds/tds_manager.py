@@ -78,6 +78,23 @@ class TDSManager:
         return sorted_tasks
     
 
+    def sort_tasks_by_caregiver_routine(self, task_lst=None):
+        # put caregiver routine tasks first, then sort by flexibility within each group
+        if task_lst is None:
+            task_lst = self.tasks.values()
+        routine_tasks = []
+        non_routine_tasks = []
+        for task in task_lst:
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+            if task.caregiver_routine:
+                routine_tasks.append(task)
+            else:
+                non_routine_tasks.append(task)
+        sorted_routine_tasks = self.sort_tasks_by_flexibility(routine_tasks)
+        sorted_non_routine_tasks = self.sort_tasks_by_flexibility(non_routine_tasks)
+        return sorted_routine_tasks + sorted_non_routine_tasks
+    
 
     def sum_total_travel(self):
         total_travel_weight = sum(

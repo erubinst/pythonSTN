@@ -465,6 +465,25 @@ class Timeline:
         dropoff_task.add_duration_constraint(0)
         dropoff_task.add_time_window_constraints(np.abs(prev_task.end.lb), task.start.ub)
         undo_stack.append((f'deleting {dropoff_task.name}', lambda: dropoff_task.delete_task()))
+
+        # set constraint so pickup/dropoff can't be more than 2 hours apart - no crazy long rides
+        pickup_task.constrain_before(dropoff_task, (self.resource.name, "ride_time"), max_gap=120)
+        undo_stack.append((f'removing ride_time constraint btwn {pickup_task.name} and {dropoff_task.name}', lambda: pickup_task.remove_constraint_btwn(dropoff_task, (self.resource.name, "ride_time"))))
+
+        # what about a constraint that says if next task is away from home,
+        # then you must be dropped off no more than 2 hours early - no crazy long waits at the dropoff location
+        if task.locations[0] != self.resource.base_location:
+            dropoff_task.constrain_before(task, (self.resource.name, "wait_time"), max_gap=120)
+            undo_stack.append((f'removing wait_time constraint btwn {dropoff_task.name} and {task.name}', lambda: dropoff_task.remove_constraint_btwn(task, (self.resource.name, "wait_time"))))
+        # if the previous task is not at home, then you must be picked up no more than 2 hours after the previous task ends - no crazy long waits at the pickup location
+        # both cases can be true (previous task and next task are away from home) and we can't have both constriants, so only 
+        # add one of the two
+        elif prev_task.locations[-1] != self.resource.base_location:
+            pickup_task.constrain_after(prev_task, (self.resource.name, "wait_time"), max_gap=120)
+            undo_stack.append((f'removing wait_time constraint btwn {prev_task.name} and {pickup_task.name}', lambda: pickup_task.remove_constraint_btwn(prev_task, (self.resource.name, "wait_time"))))
+
+        # 
+
         # undo_stack.append(lambda: self.resource.timeline.tasks.remove(dropoff_task))
         # self.resource.insert_task_to_timeline(dropoff_task, f'{self.resource.name}_presence', prev_task=pickup_task, generate_travel=True)
         # travel_duration = self.tds.travel_matrix[prev_task.locations[-1]][curr_task.locations[0]]
@@ -523,38 +542,40 @@ class Timeline:
         updated_ends = [np.abs(task.end.lb) for task in self.tasks]
 
         # Pass 1: primary updates based on stricter bounds across all instances
-        print(f"first pass for {self.resource.name}")
+        # print(f"first pass for {self.resource.name}")
         for task_idx, task in enumerate(self.tasks):
             location = self.get_presence_location(task.name) or task.locations[0]
+            presence_base_location = self.get_presence_resource_base_location(task.name)
             
             # pushing forward
-            if task.name.startswith('dropoff_at_') and location != self.resource.base_location:
+            if task.name.startswith('dropoff_at_') and location != presence_base_location:
                 min_next_start, source_next_task_name = self.get_stricter_next_bound_info(task.name)
                 if min_next_start != np.inf:
                     updated_starts[task_idx] = min(min_next_start, task.start.ub)
                     updated_ends[task_idx] = min(min_next_start, task.end.ub)
-                    print(
-                        f"Updating dropoff task {task.name} to start and end at {updated_starts[task_idx]} "
-                        f"based on stricter next start {min_next_start} from {source_next_task_name}"
-                    )
+                    # print(
+                    #     f"Updating dropoff task {task.name} to start and end at {updated_starts[task_idx]} "
+                    #     f"based on stricter next start {min_next_start} from {source_next_task_name}"
+                    # )
             # pulling back
-            elif task.name.startswith('pickup_from_') and location != self.resource.base_location:
+            elif task.name.startswith('pickup_from_') and location != presence_base_location:
                 max_prev_end, source_prev_task_name = self.get_stricter_prev_bound_info(task.name)
                 if max_prev_end != -np.inf:
                     updated_starts[task_idx] = max(max_prev_end, np.abs(task.start.lb))
                     updated_ends[task_idx] = max(max_prev_end, np.abs(task.end.lb))
-                    print(
-                        f"Updating pickup task {task.name} to start and end at {updated_starts[task_idx]} "
-                        f"based on stricter previous end {max_prev_end} from {source_prev_task_name}"
-                    )
+                    # print(
+                    #     f"Updating pickup task {task.name} to start and end at {updated_starts[task_idx]} "
+                    #     f"based on stricter previous end {max_prev_end} from {source_prev_task_name}"
+                    # )
 
         # Pass 2: secondary updates (must reference updated primary bounds)
-        print(f"second pass for {self.resource.name}")
+        # print(f"second pass for {self.resource.name}")
         for task_idx, task in enumerate(self.tasks):
             location = self.get_presence_location(task.name) or task.locations[0]
+            presence_base_location = self.get_presence_resource_base_location(task.name)
             
             # pushing forward
-            if task.name.startswith('pickup_from_') and location == self.resource.base_location and task_idx + 1 < len(self.tasks):
+            if task.name.startswith('pickup_from_') and location == presence_base_location and task_idx + 1 < len(self.tasks):
                 next_task = self.tasks[task_idx + 1]
                 travel_time = self.tds.travel_matrix[task.locations[-1]][next_task.locations[0]]
                 if next_task.name.startswith('pickup_from_') or next_task.name.startswith('dropoff_at_'):
@@ -568,12 +589,12 @@ class Timeline:
                         next_start = updated_starts[task_idx + 1]
                 updated_starts[task_idx] = min(next_start - travel_time, task.start.ub)
                 updated_ends[task_idx] = min(next_start - travel_time, task.end.ub)
-                print(
-                    f"Updating pickup task {task.name} to start and end at {updated_starts[task_idx]} "
-                    f"based on next start {next_start} from {source_next_task_name} and travel time {travel_time}"
-                )
+                # print(
+                #     f"Updating pickup task {task.name} to start and end at {updated_starts[task_idx]} "
+                #     f"based on next start {next_start} from {source_next_task_name} and travel time {travel_time}"
+                # )
             # pulling back
-            elif task.name.startswith('dropoff_at_') and location == self.resource.base_location and task_idx - 1 >= 0:
+            elif task.name.startswith('dropoff_at_') and location == presence_base_location and task_idx - 1 >= 0:
                 prev_task = self.tasks[task_idx - 1]
                 travel_time = self.tds.travel_matrix[prev_task.locations[-1]][task.locations[0]]
                 if prev_task.name.startswith('pickup_from_') or prev_task.name.startswith('dropoff_at_'):
@@ -587,10 +608,10 @@ class Timeline:
                         prev_end = updated_ends[task_idx - 1]
                 updated_starts[task_idx] = max(prev_end + travel_time, np.abs(task.start.lb))
                 updated_ends[task_idx] = max(prev_end + travel_time, np.abs(task.end.lb))
-                print(
-                    f"Updating dropoff task {task.name} to start and end at {updated_starts[task_idx]} "
-                    f"based on previous end {prev_end} from {source_prev_task_name} and travel time {travel_time}"
-                )
+                # print(
+                #     f"Updating dropoff task {task.name} to start and end at {updated_starts[task_idx]} "
+                #     f"based on previous end {prev_end} from {source_prev_task_name} and travel time {travel_time}"
+                # )
 
         for task_idx, task in enumerate(self.tasks):
             # Find which capability is assigned to this timeline's resource
@@ -666,6 +687,15 @@ class Timeline:
                 return inst['task'].locations[0]
         # Fallback to first instance if no presence capability found
         return instances[0]['task'].locations[0] if instances else None
+
+    def get_presence_resource_base_location(self, task_name):
+        """Get the base_location of the resource that has the presence capability for this task."""
+        instances = self.find_task_instances(task_name)
+        for inst in instances:
+            if inst['capability'] == f"{inst['resource'].name}_presence":
+                return inst['resource'].base_location
+        # Fallback to first instance's resource base_location if no presence capability found
+        return instances[0]['resource'].base_location if instances else None
 
     def get_stricter_prev_bound(self, task_name):
         """Get the maximum end time of all previous tasks across all instances (stricter for pull-back)."""

@@ -83,7 +83,8 @@ def schedule_independent_task(tds, task):
 def schedule_independent_tasks(tds):
     # scheduling driver tasks - go through all tasks and try to schedule onto driver.  If not able to skip
     dependent_tasks = []
-    sorted_tasks = tds.sort_tasks_by_flexibility()
+    # instead, sort by caregiver_routine (all true first), then flexibility
+    sorted_tasks = tds.sort_tasks_by_caregiver_routine()
     for task in sorted_tasks:
         scheduled = schedule_independent_task(tds, task)
         if not scheduled:

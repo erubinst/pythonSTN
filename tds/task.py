@@ -9,7 +9,8 @@ class Task:
                  capabilities, 
                  tds_manager,
                  locations=[],
-                 task_type = "NA"):
+                 task_type = "NA",
+                 caregiver_routine=False):
         """
         Create a Task and its start/end timepoints.
         """
@@ -27,6 +28,8 @@ class Task:
         self.tds.add_task_to_manager(self)
 
         self.task_type = task_type
+        self.caregiver_routine = caregiver_routine
+
 
     def get_release_time(self):
         # get edge weight with cz to start constraint type 'release_time'

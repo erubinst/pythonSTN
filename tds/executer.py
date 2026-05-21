@@ -82,7 +82,8 @@ def add_tasks_to_tds(tasks_df, tds_manager):
                 capabilities=capabilities,
                 tds_manager=tds_manager,
                 locations = row['locations'],
-                task_type = row['task_type']
+                task_type = row['task_type'],
+                caregiver_routine = row['caregiver_routine']
             )
         except ValueError as e:
             print(f"Error creating task '{name}': {e}")
@@ -354,8 +355,6 @@ if __name__ == '__main__':
 
     # export to csv
     df = export_schedule_to_df(tds, EPOCH_DATE)
-    # filter out resource types that are not 'cg'
-    df = df[df['resource_type'] == 'cg']
     df.to_csv("schedule.csv", index=False)
     caregiver_time = tds.get_caregiver_total_time()
     print(f"Caregiver time: {caregiver_time}")

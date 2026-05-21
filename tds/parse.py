@@ -96,7 +96,8 @@ def load_tasks_df(templates_dict, orders_dict, cz_datetime):
             "lft": minutes_since_cz(order["duedate"], cz_datetime),
             "locations": [order['start-location'], order['end-location']],
             "duration": subtask.get("duration", None),
-            "task_type": subtask.get("task_type","NA")
+            "task_type": subtask.get("task_type","NA"),
+            "caregiver_routine": order.get("caregiver_routine", False)
         })
     return pd.DataFrame(rows)
 

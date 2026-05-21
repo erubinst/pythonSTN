@@ -43,14 +43,17 @@ def convert_times_to_realtime(df, epoch_date_str):
 
     df['display_start'] = epoch_date + pd.to_timedelta(df['display_start'], unit='m')
     df['display_end'] = epoch_date + pd.to_timedelta(df['display_end'], unit='m')
+    
+    df['display_start'] = df['display_start'].dt.tz_localize('UTC')
+    df['display_end'] = df['display_end'].dt.tz_localize('UTC')
 
     return df
 
 
 def display_current_schedule(tds, epoch_date_str, resource_type=None):
     df = tds.export_to_df()
-    if resource_type:
-        df = df[df['resource_type'] == resource_type]
+    # if resource_type:
+        # df = df[df['resource_type'] == resource_type]
     df = convert_times_to_realtime(df, epoch_date_str)
 
     # if task name contains 'travel', set to different color
@@ -82,9 +85,10 @@ def display_current_schedule(tds, epoch_date_str, resource_type=None):
     # ---------------------------------------------------------
     epsilon = pd.Timedelta(minutes=0.5)  # can be 1s or 30s if you prefer smaller
 
+
     df['end_lb_plot'] = df['display_end']  # new plotting end time
     zero_mask = df['display_start'] == df['display_end']
-    df.loc[zero_mask, 'end_lb_plot'] = df.loc[zero_mask, 'end_lb'] + epsilon
+    df.loc[zero_mask, 'end_lb_plot'] = df.loc[zero_mask, 'display_end'] + epsilon
     # ---------------------------------------------------------
 
     fig = px.timeline(
