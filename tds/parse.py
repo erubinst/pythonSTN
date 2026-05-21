@@ -60,6 +60,7 @@ def load_resources_df(resources_dict):
     for name, r in resources_dict.items():
         rows.append({
             "resource_name": name.lower(),
+            "type": r.get("type", "NA"),
             "capabilities": ", ".join(r.get("capabilities", [])),
             'location': r['location'],
         })

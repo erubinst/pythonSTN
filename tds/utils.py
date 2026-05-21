@@ -41,14 +41,16 @@ def convert_times_to_realtime(df, epoch_date_str):
     df['start_ub'] = df['start_ub'].dt.tz_localize('UTC')
     df['end_ub'] = df['end_ub'].dt.tz_localize('UTC')
 
-    df['display_start'] = df['start_lb']
-    df['display_end'] = df['end_lb']
+    df['display_start'] = epoch_date + pd.to_timedelta(df['display_start'], unit='m')
+    df['display_end'] = epoch_date + pd.to_timedelta(df['display_end'], unit='m')
 
     return df
 
 
-def display_current_schedule(tds, epoch_date_str):
+def display_current_schedule(tds, epoch_date_str, resource_type=None):
     df = tds.export_to_df()
+    if resource_type:
+        df = df[df['resource_type'] == resource_type]
     df = convert_times_to_realtime(df, epoch_date_str)
 
     # if task name contains 'travel', set to different color

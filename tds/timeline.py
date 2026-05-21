@@ -509,22 +509,105 @@ class Timeline:
         Columns:
         resource, task_name, start_lb, start_ub, end_lb, end_ub, capability
         """
-        rows = []
 
-        for task in self.tasks:
+        # for pickup/dropoff tasks, we need to place start and end based on location of surrounding tasks
+        # a pickup/dropoff task appears on multiple timelines, so we need to find all instances of it
+        # and the surrounding tasks on each timeline to determine where it should be placed
+        # we will use the instance on the timeline where the capability is "{resource}_presence" as the source of truth for location
+        # we will use the stricter bound for push/pull based on the surrounding task bounds across all timelines
+        
+        rows = []
+        # Build updated bounds in two passes so secondary updates can use
+        # the already-updated primary neighbor bounds.
+        updated_starts = [np.abs(task.start.lb) for task in self.tasks]
+        updated_ends = [np.abs(task.end.lb) for task in self.tasks]
+
+        # Pass 1: primary updates based on stricter bounds across all instances
+        print(f"first pass for {self.resource.name}")
+        for task_idx, task in enumerate(self.tasks):
+            location = self.get_presence_location(task.name) or task.locations[0]
+            
+            # pushing forward
+            if task.name.startswith('dropoff_at_') and location != self.resource.base_location:
+                min_next_start, source_next_task_name = self.get_stricter_next_bound_info(task.name)
+                if min_next_start != np.inf:
+                    updated_starts[task_idx] = min(min_next_start, task.start.ub)
+                    updated_ends[task_idx] = min(min_next_start, task.end.ub)
+                    print(
+                        f"Updating dropoff task {task.name} to start and end at {updated_starts[task_idx]} "
+                        f"based on stricter next start {min_next_start} from {source_next_task_name}"
+                    )
+            # pulling back
+            elif task.name.startswith('pickup_from_') and location != self.resource.base_location:
+                max_prev_end, source_prev_task_name = self.get_stricter_prev_bound_info(task.name)
+                if max_prev_end != -np.inf:
+                    updated_starts[task_idx] = max(max_prev_end, np.abs(task.start.lb))
+                    updated_ends[task_idx] = max(max_prev_end, np.abs(task.end.lb))
+                    print(
+                        f"Updating pickup task {task.name} to start and end at {updated_starts[task_idx]} "
+                        f"based on stricter previous end {max_prev_end} from {source_prev_task_name}"
+                    )
+
+        # Pass 2: secondary updates (must reference updated primary bounds)
+        print(f"second pass for {self.resource.name}")
+        for task_idx, task in enumerate(self.tasks):
+            location = self.get_presence_location(task.name) or task.locations[0]
+            
+            # pushing forward
+            if task.name.startswith('pickup_from_') and location == self.resource.base_location and task_idx + 1 < len(self.tasks):
+                next_task = self.tasks[task_idx + 1]
+                travel_time = self.tds.travel_matrix[task.locations[-1]][next_task.locations[0]]
+                if next_task.name.startswith('pickup_from_') or next_task.name.startswith('dropoff_at_'):
+                    next_start = updated_starts[task_idx + 1]
+                    source_next_task_name = next_task.name
+                else:
+                    min_next_start, source_next_task_name = self.get_stricter_next_bound_info(task.name)
+                    if min_next_start != np.inf:
+                        next_start = min_next_start
+                    else:
+                        next_start = updated_starts[task_idx + 1]
+                updated_starts[task_idx] = min(next_start - travel_time, task.start.ub)
+                updated_ends[task_idx] = min(next_start - travel_time, task.end.ub)
+                print(
+                    f"Updating pickup task {task.name} to start and end at {updated_starts[task_idx]} "
+                    f"based on next start {next_start} from {source_next_task_name} and travel time {travel_time}"
+                )
+            # pulling back
+            elif task.name.startswith('dropoff_at_') and location == self.resource.base_location and task_idx - 1 >= 0:
+                prev_task = self.tasks[task_idx - 1]
+                travel_time = self.tds.travel_matrix[prev_task.locations[-1]][task.locations[0]]
+                if prev_task.name.startswith('pickup_from_') or prev_task.name.startswith('dropoff_at_'):
+                    prev_end = updated_ends[task_idx - 1]
+                    source_prev_task_name = prev_task.name
+                else:
+                    max_prev_end, source_prev_task_name = self.get_stricter_prev_bound_info(task.name)
+                    if max_prev_end != -np.inf:
+                        prev_end = max_prev_end
+                    else:
+                        prev_end = updated_ends[task_idx - 1]
+                updated_starts[task_idx] = max(prev_end + travel_time, np.abs(task.start.lb))
+                updated_ends[task_idx] = max(prev_end + travel_time, np.abs(task.end.lb))
+                print(
+                    f"Updating dropoff task {task.name} to start and end at {updated_starts[task_idx]} "
+                    f"based on previous end {prev_end} from {source_prev_task_name} and travel time {travel_time}"
+                )
+
+        for task_idx, task in enumerate(self.tasks):
             # Find which capability is assigned to this timeline's resource
-            cap_for_resource = self.capability_assigned[self.tasks.index(task)]
+            cap_for_resource = self.capability_assigned[task_idx]
             # TODO Add resource capability here
 
             rows.append({
                 "resource": self.resource.name,
                 "task_name": task.name,
+                "display_start": updated_starts[task_idx],
+                "display_end": updated_ends[task_idx],
                 "start_lb": np.abs(task.start.lb),
                 "start_ub": task.start.ub,
                 "end_lb": np.abs(task.end.lb),
                 "end_ub": task.end.ub,
                 "capability": cap_for_resource,
-                "location": task.locations[0],
+                "location": self.get_presence_location(task.name) or task.locations[0],
                 "duration": task.get_duration()
             })
 
@@ -537,22 +620,22 @@ class Timeline:
                     # if previous task is at home, link travel to next task
                     # if previous task is not at home, link travel to current task
                     if next_task.locations[-1] != self.resource.base_location:
-                        start_lb = np.abs(next_task.start.lb) - travel_lb
-                        start_ub = next_task.start.ub - travel_lb
-                        end_lb = np.abs(next_task.start.lb)
-                        end_ub = next_task.start.ub
+                        start_lb = updated_starts[task_idx + 1] - travel_lb
+                        end_lb = updated_starts[task_idx + 1]
                     else:
-                        start_lb = np.abs(task.end.lb)
-                        start_ub = task.end.ub
-                        end_lb = np.abs(task.end.lb) + travel_lb
-                        end_ub = task.end.ub + travel_lb
+                        start_lb = updated_ends[task_idx]
+                        end_lb = updated_ends[task_idx] + travel_lb
                     rows.append({
                         "resource": self.resource.name,
                         "task_name": f"travel_{task.name}_to_{next_task.name}",
-                        "start_lb": start_lb,
-                        "start_ub": start_ub,
-                        "end_lb": end_lb,
-                        "end_ub": end_ub,
+                        'display_start': start_lb,
+                        'display_end': end_lb,
+                        "start_lb": np.abs(task.end.lb),
+                        "start_ub": next_task.start.ub - travel_lb,
+                        "end_lb": np.abs(task.end.lb) + travel_lb,
+                        "end_ub": next_task.start.ub,
+                        'display_start': start_lb,
+                        'display_end': end_lb,
                         "capability": "travel",
                         "location": None,
                         "duration": task.get_duration()
@@ -560,6 +643,83 @@ class Timeline:
 
         df = pd.DataFrame(rows)
         return df
+
+    def find_task_instances(self, task_name):
+        """Find all instances of a task across all resource timelines."""
+        instances = []
+        for resource in self.tds.resources.values():
+            for idx, t in enumerate(resource.timeline.tasks):
+                if t.name == task_name:
+                    instances.append({
+                        'resource': resource,
+                        'timeline_idx': idx,
+                        'task': t,
+                        'capability': resource.timeline.capability_assigned[idx]
+                    })
+        return instances
+
+    def get_presence_location(self, task_name):
+        """Get location from the instance where capability is {resource}_presence."""
+        instances = self.find_task_instances(task_name)
+        for inst in instances:
+            if inst['capability'] == f"{inst['resource'].name}_presence":
+                return inst['task'].locations[0]
+        # Fallback to first instance if no presence capability found
+        return instances[0]['task'].locations[0] if instances else None
+
+    def get_stricter_prev_bound(self, task_name):
+        """Get the maximum end time of all previous tasks across all instances (stricter for pull-back)."""
+        instances = self.find_task_instances(task_name)
+        max_prev_end = -np.inf
+        for inst in instances:
+            timeline_idx = inst['timeline_idx']
+            if timeline_idx > 0:
+                prev_task = inst['resource'].timeline.tasks[timeline_idx - 1]
+                prev_end = np.abs(prev_task.end.lb)
+                max_prev_end = max(max_prev_end, prev_end)
+        return max_prev_end if max_prev_end != -np.inf else -np.inf
+
+    def get_stricter_prev_bound_info(self, task_name):
+        """Get the maximum previous end time and the task name that produced it."""
+        instances = self.find_task_instances(task_name)
+        max_prev_end = -np.inf
+        source_task_name = None
+        for inst in instances:
+            timeline_idx = inst['timeline_idx']
+            if timeline_idx > 0:
+                prev_task = inst['resource'].timeline.tasks[timeline_idx - 1]
+                prev_end = np.abs(prev_task.end.lb)
+                if prev_end > max_prev_end:
+                    max_prev_end = prev_end
+                    source_task_name = prev_task.name
+        return (max_prev_end if max_prev_end != -np.inf else -np.inf, source_task_name)
+
+    def get_stricter_next_bound(self, task_name):
+        """Get the minimum start time of all next tasks across all instances (stricter for push-forward)."""
+        instances = self.find_task_instances(task_name)
+        min_next_start = np.inf
+        for inst in instances:
+            timeline_idx = inst['timeline_idx']
+            if timeline_idx + 1 < len(inst['resource'].timeline.tasks):
+                next_task = inst['resource'].timeline.tasks[timeline_idx + 1]
+                next_start = np.abs(next_task.start.lb)
+                min_next_start = min(min_next_start, next_start)
+        return min_next_start if min_next_start != np.inf else np.inf
+
+    def get_stricter_next_bound_info(self, task_name):
+        """Get the minimum next start time and the task name that produced it."""
+        instances = self.find_task_instances(task_name)
+        min_next_start = np.inf
+        source_task_name = None
+        for inst in instances:
+            timeline_idx = inst['timeline_idx']
+            if timeline_idx + 1 < len(inst['resource'].timeline.tasks):
+                next_task = inst['resource'].timeline.tasks[timeline_idx + 1]
+                next_start = np.abs(next_task.start.lb)
+                if next_start < min_next_start:
+                    min_next_start = next_start
+                    source_task_name = next_task.name
+        return (min_next_start if min_next_start != np.inf else np.inf, source_task_name)
 
     def __repr__(self):
         seq = " → ".join(t.name for t in self.tasks)

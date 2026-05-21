@@ -19,7 +19,8 @@ def add_resources_to_tds(resources_df, tds_manager):
         name = row["resource_name"]
         caps = [c.strip() for c in row["capabilities"].split(",")] if row["capabilities"] else []
         base_location = row['location']
-        res = Resource(name, caps, base_location, tds_manager)
+        type = row['type']
+        res = Resource(name, caps, base_location, type, tds_manager)
 
 
 def add_downtimes_to_tds(downtimes_df, tds_manager):
@@ -353,8 +354,12 @@ if __name__ == '__main__':
 
     # export to csv
     df = export_schedule_to_df(tds, EPOCH_DATE)
+    # filter out resource types that are not 'cg'
+    df = df[df['resource_type'] == 'cg']
     df.to_csv("schedule.csv", index=False)
-    display_current_schedule(tds, EPOCH_DATE)
+    caregiver_time = tds.get_caregiver_total_time()
+    print(f"Caregiver time: {caregiver_time}")
+    display_current_schedule(tds, EPOCH_DATE, resource_type='cg')
 
 
 # --- routine for taking input schedule: ---

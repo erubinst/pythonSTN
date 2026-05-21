@@ -34,6 +34,24 @@ class TDSManager:
         ranked_tasks.sort()
         sorted_tasks = [task for _, _, task in ranked_tasks]
         return sorted_tasks
+    
+
+    def get_caregiver_total_time(self):
+        caregiver_time = {}
+        for resource in self.resources.values():
+            if resource.type == 'cg':
+                total_time = 0
+                for task in resource.timeline.tasks:
+                    if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                        continue
+                    total_time += task.get_duration()
+                    # get travel time for this task
+                    for _, _, key, data in self.stn.edges(resource.name, keys=True, data=True):
+                        if (isinstance(key, tuple) and len(key) > 1 and key[1] == "travel" and not np.isinf(data.get("weight", 0))):
+                            total_time += data.get("weight", 0)
+                caregiver_time[resource.name] = total_time
+        return caregiver_time
+
 
     def get_driver_capabilities(self):
         driver_capabilities = set()
@@ -58,6 +76,7 @@ class TDSManager:
         for _,_,task in flex_list:
             sorted_tasks.append(task)
         return sorted_tasks
+    
 
 
     def sum_total_travel(self):
@@ -75,6 +94,7 @@ class TDSManager:
         )
         return total_travel_weight
     
+
     def sum_total_ride_time(self):
         total_ride_time = 0
         for resource in self.resources.values():
@@ -97,9 +117,11 @@ class TDSManager:
             raise ValueError(f"Task '{task.name}' already exists")
         self.tasks[task.name] = task
     
+
     def add_resource_to_manager(self, resource):
         """Register a resource."""
         self.resources[resource.name] = resource
+
 
     def same_task_groups(self):
         resource_same_tasks = {}
@@ -108,6 +130,7 @@ class TDSManager:
             resource_same_tasks[res_name] = task_groups
         return resource_same_tasks
     
+
     def calculate_total_travel_task_time(self):
         total_travel = self.sum_total_travel()
         # find total task duration time
@@ -121,6 +144,7 @@ class TDSManager:
         total_time = total_task_time + total_travel
         return total_time
 
+
     def export_to_df(self):
         df = pd.DataFrame()
         for resource in self.resources.values():
@@ -128,6 +152,7 @@ class TDSManager:
             df = pd.concat([df, timeline_df])
         return df
     
+
     def export_transport_request(self):
         output = {
             "resources": []

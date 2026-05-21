@@ -6,9 +6,10 @@ from .utils import minutes_since_cz
 from datetime import datetime
 
 class Resource:
-    def __init__(self, name, capabilities, base_location, tds_manager):
+    def __init__(self, name, capabilities, base_location, type, tds_manager):
         self.name = name.lower()
         self.capabilities = {c.lower() for c in capabilities}
+        self.type = type
         self.tds = tds_manager
         self.base_location = base_location
         self.timeline = Timeline(self, tds_manager)
