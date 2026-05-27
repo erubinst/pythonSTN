@@ -4,7 +4,21 @@ from tds.tds_manager import TDSManager
 from tds.config import *
 from tds.parse import *
 from tds.utils import *
-from tds.search import find_independent_task_assignment, schedule_independent_tasks, schedule_dependent_task, find_dependent_task_assignment, apply_independent_assignment, apply_assignment
+from tds.search import (
+    find_independent_task_assignment,
+    schedule_independent_tasks,
+    schedule_dependent_task,
+    find_dependent_task_assignment,
+    apply_independent_assignment,
+    apply_assignment as apply_dependent_assignment,
+    ObjectiveType,
+    SortType
+)
+
+# Default objective for scheduling (change here to switch behavior)
+DEFAULT_OBJECTIVE = ObjectiveType.MIN_TRAVEL_TIME
+# Default sort for independent task scheduling (change here to switch sorting)
+DEFAULT_SORT = SortType.FLEXIBILITY
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -83,7 +97,7 @@ def add_tasks_to_tds(tasks_df, tds_manager):
                 tds_manager=tds_manager,
                 locations = row['locations'],
                 task_type = row['task_type'],
-                caregiver_routine = row['caregiver_routine']
+                caregiver_routine = row['caregiver_routine'] if 'caregiver_routine' in row else False
             )
         except ValueError as e:
             print(f"Error creating task '{name}': {e}")
@@ -259,14 +273,18 @@ def upload_request(request, travel_matrix, epoch_date, add_downtimes=True):
 def run_scheduler(request, travel_matrix, epoch_date):
     tds = upload_request(request, travel_matrix, epoch_date)
 
-    dependent_tasks = schedule_independent_tasks(tds)
+    dependent_tasks = schedule_independent_tasks(tds, DEFAULT_OBJECTIVE, DEFAULT_SORT)
     for dep_task in dependent_tasks:
-        schedule_dependent_task(tds, dep_task)
+        schedule_dependent_task(tds, dep_task, DEFAULT_OBJECTIVE)
     
     # add_return_home_tasks(tds)
     
     df = export_schedule_to_df(tds, epoch_date)
     return df
+
+
+def export_schedule(tds, epoch_date):
+    return export_schedule_to_df(tds, epoch_date)
 
 
 def reload_tds(scenario, current_schedule):
@@ -308,10 +326,15 @@ def add_task(tds, new_task_info):
     print(f"Added new task {new_task_info['task_name'][0]} to TDS")
     task_instance = tds.tasks[new_task_info['task_name'][0]]
     # try to schedule
-    assignment = find_independent_task_assignment(tds, task_instance)
+    assignment = find_independent_task_assignment(tds, task_instance, DEFAULT_OBJECTIVE)
     if not assignment:
         print(f"Could not find independent assignment for new task {task_instance.name}, trying to find dependent assignment")
-        assignment = find_dependent_task_assignment(tds, task_instance)
+        assignment = find_dependent_task_assignment(tds, task_instance, DEFAULT_OBJECTIVE)
+        # add task key to assignment dict for apply_assignment
+        if assignment:
+            assignment['task'] = task_instance
+        else:
+            raise ValueError(f"Could not find any assignment for new task {task_instance.name}")
     else:
         assignment = pd.DataFrame([{
             'capability_assignment': assignment,
@@ -323,10 +346,36 @@ def add_task(tds, new_task_info):
     return assignment
 
 
+# apply assignment in format from add task
 def apply_assignment(tds, assignment):
-    if assignment['total_ride_time'] == 0:
-        # independent assignment
-        apply_independent_assignment(tds, )
+    """
+    Apply assignment for a single task.
+    Handles both independent and dependent task assignments.
+    
+    Parameters:
+        tds: Task Dependent Scheduling manager
+        task: Task to assign
+        assignment: Either a list of (resource, prior_task, capability) tuples for independent tasks,
+                   or a dict with 'capability_assignment' and 'transport_assignment' keys for dependent tasks
+    """
+        # Check if this is an independent or dependent task
+    driver_capabilities = tds.get_driver_capabilities()
+    print(f'Assignment {assignment}')
+    task = assignment['task']
+    is_independent = all(cap in driver_capabilities for cap in task.capabilities)
+    
+    if is_independent:
+        # For independent tasks, extract just the capability_assignment if it's a dict
+        if isinstance(assignment, dict):
+            capability_assignment = assignment.get('capability_assignment', assignment)
+        else:
+            capability_assignment = assignment
+        apply_independent_assignment(tds, task, capability_assignment)
+    else:
+        # Assignment is a dict with 'capability_assignment' and 'transport_assignment'
+        apply_dependent_assignment(tds, task, assignment)
+
+    return tds
 
 
 # Only run this if executed directly (not imported)
@@ -343,13 +392,13 @@ if __name__ == '__main__':
     # TODO fix order constraints
     # add_order_constraints_to_tds(order_constraints, tds)
 
-    dependent_tasks = schedule_independent_tasks(tds)
+    dependent_tasks = schedule_independent_tasks(tds, DEFAULT_OBJECTIVE, DEFAULT_SORT)
     for dep_task in dependent_tasks:
-        schedule_dependent_task(tds, dep_task)
+        schedule_dependent_task(tds, dep_task, DEFAULT_OBJECTIVE)
 
     reduce_like_task_durations(tds)
     print(f"Total task + travel time: {tds.calculate_total_travel_task_time()} minutes")
-    print(f"Total uncoordinated time: {calculate_uncoordinated_time(tds)} minutes")
+    # print(f"Total uncoordinated time: {calculate_uncoordinated_time(tds)} minutes")
     
     # add_return_home_tasks(tds)
 
