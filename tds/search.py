@@ -1,5 +1,17 @@
 from tds.utils import *
 from collections import deque
+from enum import Enum
+import random
+
+class ObjectiveType(Enum):
+    MIN_TRAVEL_TIME = "min_travel_time"
+    MIN_COMPLETION_TIME = "min_completion_time"
+    MIN_MAKESPAN = "min_makespan"
+
+
+class SortType(Enum):
+    CAREGIVER_ROUTINE = "caregiver_routine"
+    FLEXIBILITY = "flexibility"
 
 
 def get_task_location_options(task):
@@ -18,7 +30,20 @@ def set_task_location(task, location):
     """Force a task to use one concrete location for both start and end."""
     task.locations = [location, location]
 
-def find_independent_task_assignment(tds, task):
+
+def find_independent_task_assignment(tds, task, objective=ObjectiveType.MIN_TRAVEL_TIME):
+    """
+    Find the best location and resource assignment for an independent task.
+    
+    Args:
+        tds: Task Dependent Scheduling manager
+        task: Task to assign
+        objective: ObjectiveType enum specifying the optimization objective
+               (MIN_TRAVEL_TIME, MIN_COMPLETION_TIME, or MIN_MAKESPAN)
+    
+    Returns:
+        Best assignment tuple or None if no valid assignment exists
+    """
     driver_capabilities = tds.get_driver_capabilities()
     for cap in task.capabilities:
         if cap not in driver_capabilities:
@@ -34,7 +59,7 @@ def find_independent_task_assignment(tds, task):
 
     best_assignment = None
     best_location = None
-    best_travel = None
+    best_metric = None
 
     for location in location_options:
         set_task_location(task, location)
@@ -42,15 +67,15 @@ def find_independent_task_assignment(tds, task):
         if not assignments:
             continue
 
-        candidate_assignment, candidate_travel = min(assignments, key=lambda x: x[1])
+        candidate_assignment, candidate_metric = min(assignments, key=lambda x: x[1])
         print(
-            f"Candidate location {location} for {task.name} has minimum travel {candidate_travel}"
+            f"Candidate location {location} for {task.name} has minimum {objective.value} {candidate_metric}"
         )
 
-        if best_travel is None or candidate_travel < best_travel:
+        if best_metric is None or candidate_metric < best_metric:
             best_assignment = candidate_assignment
             best_location = location
-            best_travel = candidate_travel
+            best_metric = candidate_metric
 
     if best_assignment:
         set_task_location(task, best_location)
@@ -70,8 +95,19 @@ def apply_independent_assignment(tds, task, assignment):
         resource.insert_task_to_timeline(task, capability, prev_task=prior_task)
 
 
-def schedule_independent_task(tds, task):
-    assignment = find_independent_task_assignment(tds, task)
+def schedule_independent_task(tds, task, objective=ObjectiveType.MIN_TRAVEL_TIME):
+    """
+    Schedule an independent task using the specified objective.
+    
+    Args:
+        tds: Task Dependent Scheduling manager
+        task: Task to schedule
+        objective: ObjectiveType enum for optimization objective
+    
+    Returns:
+        True if task was successfully scheduled, False otherwise
+    """
+    assignment = find_independent_task_assignment(tds, task, objective)
     if assignment:
         apply_independent_assignment(tds, task, assignment)
         return True
@@ -79,31 +115,67 @@ def schedule_independent_task(tds, task):
         return False
 
 
-# Pull out tasks that can be done by a driver and schedule
-def schedule_independent_tasks(tds):
+def schedule_independent_tasks(tds, objective=ObjectiveType.MIN_TRAVEL_TIME, sort_by=SortType.CAREGIVER_ROUTINE):
+    """
+    Schedule all independent tasks using the specified objective.
+    
+    Args:
+        tds: Task Dependent Scheduling manager
+        objective: ObjectiveType enum for optimization objective
+    
+    Returns:
+        List of tasks that could not be scheduled (dependent tasks)
+    """
     # scheduling driver tasks - go through all tasks and try to schedule onto driver.  If not able to skip
     dependent_tasks = []
-    # instead, sort by caregiver_routine (all true first), then flexibility
-    sorted_tasks = tds.sort_tasks_by_caregiver_routine()
+    # choose sorting method (caregiver routine or flexibility)
+    if sort_by == SortType.FLEXIBILITY:
+        sorted_tasks = tds.sort_tasks_by_flexibility()
+    else:
+        # default: caregiver routine (all true first), then flexibility
+        sorted_tasks = tds.sort_tasks_by_caregiver_routine()
     for task in sorted_tasks:
-        scheduled = schedule_independent_task(tds, task)
+        scheduled = schedule_independent_task(tds, task, objective)
         if not scheduled:
             dependent_tasks.append(task)
     return dependent_tasks
 
 
-def find_dependent_task_assignment(tds, task):
+def find_dependent_task_assignment(tds, task, objective=ObjectiveType.MIN_TRAVEL_TIME):
+    """
+    Find the best assignment for a dependent task that requires transport.
+    
+    Args:
+        tds: Task Dependent Scheduling manager
+        task: Task to assign
+        objective: ObjectiveType enum specifying the optimization objective
+               (MIN_TRAVEL_TIME, MIN_COMPLETION_TIME, or MIN_MAKESPAN)
+    
+    Returns:
+        Best assignment dictionary or None if no valid assignment exists
+    """
     print(f'Finding assignment for dependent task {task.name}')
     assignments = search_through_capability_assignments_with_transport(tds, task)
     if not assignments:
         print(f'No valid assignment found for dependent task {task.name}')
         return None
-    best_assignment = select_best_assignment(assignments, task.name)
+    best_assignment = select_best_assignment(assignments, task.name, objective)
     return best_assignment
 
 
-def schedule_dependent_task(tds, task):
-    assignment = find_dependent_task_assignment(tds, task)
+def schedule_dependent_task(tds, task, objective=ObjectiveType.MIN_TRAVEL_TIME):
+    """
+    Schedule a dependent task that requires transport using the specified objective.
+    
+    Args:
+        tds: Task Dependent Scheduling manager
+        task: Task to schedule
+        objective: ObjectiveType enum for optimization objective
+    
+    Returns:
+        True if task was successfully scheduled, False otherwise
+    """
+    assignment = find_dependent_task_assignment(tds, task, objective)
     if assignment:  
         apply_assignment(tds, task, assignment)
         return True
@@ -127,23 +199,71 @@ def deduplicate_assignments(assignments, task_name):
     return unique
 
 
-def select_best_assignment(assignments, task_name):
+# need to edit this to have the objective function be a parameter
+def select_best_assignment(assignments, task_name, objective=ObjectiveType.MIN_TRAVEL_TIME):
+    """
+    Select the best assignment from a list based on the objective function.
+    
+    Args:
+        assignments: List of assignment dictionaries with metrics
+        task_name: Name of the task for logging
+        objective: ObjectiveType enum specifying how to select the best assignment
+    
+    Returns:
+        Best assignment dictionary or None if no assignments available
+    """
     if not assignments:
         print(f'No possible assignments for {task_name}')
         return None
 
-    min_travel = min(a['total_travel'] for a in assignments)
-    min_travel_assignments = [
-        a for a in assignments if a['total_travel'] == min_travel
-    ]
+    if objective == ObjectiveType.MIN_TRAVEL_TIME:
+        # First minimize travel, then use ride time as tiebreaker
+        min_travel = min(a['total_travel'] for a in assignments)
+        min_travel_assignments = [
+            a for a in assignments if a['total_travel'] == min_travel
+        ]
 
-    print(
-        f'Found {len(min_travel_assignments)} assignments '
-        f'with minimal travel {min_travel} for {task_name}'
-    )
+        print(
+            f'Found {len(min_travel_assignments)} assignments '
+            f'with minimal travel {min_travel} for {task_name}'
+        )
 
-    best = min(min_travel_assignments, key=lambda a: a['total_ride_time'])
-    print(f'Selected assignment with ride time {best["total_ride_time"]}')
+        best = min(min_travel_assignments, key=lambda a: a['total_ride_time'])
+        print(f'Selected assignment with ride time {best["total_ride_time"]}')
+
+    elif objective == ObjectiveType.MIN_COMPLETION_TIME:
+        # Minimize total completion time, then use travel as tiebreaker
+        min_completion = min(a['total_completion_time'] for a in assignments)
+        min_completion_assignments = [
+            a for a in assignments if a['total_completion_time'] == min_completion
+        ]
+
+        print(
+            f'Found {len(min_completion_assignments)} assignments '
+            f'with minimal completion time {min_completion} for {task_name}'
+        )
+
+
+        best = random.choice(min_completion_assignments)
+        print(f'Selected assignment with ride time {best["total_ride_time"]}')
+
+    elif objective == ObjectiveType.MIN_MAKESPAN:
+        # Minimize makespan, then use travel as a tie-breaker
+        min_makespan = min(a['makespan'] for a in assignments)
+        min_makespan_assignments = [
+            a for a in assignments if a['makespan'] == min_makespan
+        ]
+
+        print(
+            f'Found {len(min_makespan_assignments)} assignments '
+            f'with minimal makespan {min_makespan} for {task_name}'
+        )
+
+        best = random.choice(min_makespan_assignments)
+        print(f'Selected assignment with travel {best["total_travel"]}')
+
+    else:
+        raise ValueError(f"Unknown objective type: {objective}")
 
     return best
 
@@ -394,7 +514,9 @@ def backtrack_capability_assignments_with_transport(
             'capability_assignment': list(current_assignment),
             'transport_assignment': list(transport_assignment),
             'total_travel': tds.sum_total_travel(),
-            'total_ride_time': tds.sum_total_ride_time()
+            'total_ride_time': tds.sum_total_ride_time(),
+            'total_completion_time': tds.sum_total_completion_time(),
+            'makespan': tds.min_makespan()
         })
         return True
 

@@ -41,15 +41,26 @@ class TDSManager:
         for resource in self.resources.values():
             if resource.type == 'cg':
                 total_time = 0
+                # sum task durations (skip headers/footers/downtime)
                 for task in resource.timeline.tasks:
                     if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                         continue
                     total_time += task.get_duration()
-                    # get travel time for this task
-                    for _, _, key, data in self.stn.edges(resource.name, keys=True, data=True):
-                        if (isinstance(key, tuple) and len(key) > 1 and key[1] == "travel" and not np.isinf(data.get("weight", 0))):
-                            total_time += data.get("weight", 0)
-                caregiver_time[resource.name] = total_time
+
+                # sum travel edges for this resource once (use absolute weights to match sum_total_travel)
+                travel_time = sum(
+                    np.abs(data.get("weight", 0))
+                    for _, _, key, data in self.stn.edges(keys=True, data=True)
+                    if (
+                        isinstance(key, tuple)
+                        and len(key) > 1
+                        and key[1] == "travel"
+                        and not np.isinf(data.get("weight", 0))
+                        and key[0] == resource.name
+                    )
+                )
+                total_time += travel_time
+                caregiver_time[resource.name] = int(total_time)
         return caregiver_time
 
 
@@ -106,10 +117,21 @@ class TDSManager:
                 and key[1] == "travel"
                 and not np.isinf(data.get("weight", 0))
                 and key[0] in self.resources
-                and 'traveler' in self.resources[key[0]].capabilities
+                and self.resources[key[0]].type == 'cg'  # only count travel for caregivers
             )
         )
         return total_travel_weight
+    
+
+    def min_makespan(self):
+        max_completion_time = 0
+        for task in self.tasks.values():
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+            task_completion_time = np.abs(task.end.lb)
+            if task_completion_time > max_completion_time:
+                max_completion_time = task_completion_time
+        return max_completion_time
     
 
     def sum_total_ride_time(self):
@@ -126,6 +148,18 @@ class TDSManager:
                         total_ride_time += ride_time
                         pickup_task = None
         return total_ride_time
+    
+
+    # sum total completion time
+    def sum_total_completion_time(self):
+        max_completion_time = 0
+        for task in self.tasks.values():
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+            task_completion_time = np.abs(task.end.lb)
+            if task_completion_time > max_completion_time:
+                max_completion_time = task_completion_time
+        return max_completion_time
                     
 
     def add_task_to_manager(self, task):
@@ -153,6 +187,9 @@ class TDSManager:
         # find total task duration time
         total_task_time = 0
         for resource in self.resources.values():
+            # only count for caregivers
+            if resource.type != 'cg':
+                continue
             for task in resource.timeline.tasks:
                 # skip downtime tasks and header/footer tasks
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:

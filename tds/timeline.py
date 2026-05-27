@@ -620,7 +620,9 @@ class Timeline:
 
             rows.append({
                 "resource": self.resource.name,
+                "resource_type": self.resource.type,
                 "task_name": task.name,
+                "cg_routine": task.caregiver_routine,
                 "display_start": updated_starts[task_idx],
                 "display_end": updated_ends[task_idx],
                 "start_lb": np.abs(task.start.lb),
@@ -648,7 +650,9 @@ class Timeline:
                         end_lb = updated_ends[task_idx] + travel_lb
                     rows.append({
                         "resource": self.resource.name,
+                        "resource_type": self.resource.type,
                         "task_name": f"travel_{task.name}_to_{next_task.name}",
+                        "cg_routine": False,
                         'display_start': start_lb,
                         'display_end': end_lb,
                         "start_lb": np.abs(task.end.lb),
@@ -659,7 +663,7 @@ class Timeline:
                         'display_end': end_lb,
                         "capability": "travel",
                         "location": None,
-                        "duration": task.get_duration()
+                        "duration": travel_lb
                     })
 
         df = pd.DataFrame(rows)
