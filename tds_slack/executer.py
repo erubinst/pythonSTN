@@ -90,7 +90,7 @@ def send_event(tds, row):
     resource = tds.resources[row['resource'].lower()]
     # Initializing downtime instance
     dt_task = resource.timeline.generate_downtime(row['start_time'], row['end_time'], row['duration'], row['location'], None, insert=False)
-    overlapping_task = resource.timeline.find_overlapping_task(dt_task)
+    overlapping_task = resource.timeline.find_first_overlapping_task(dt_task)
     prev_task = None
     if overlapping_task:
         print(f"Resource {resource.name} has an overlapping task {overlapping_task.name} with the downtime starting at {row['start_time']}")
@@ -151,7 +151,7 @@ def send_event(tds, row):
         print(f"Removed affected task {affected_task.name} from {resource.name} to insert {dt_task.name}.")
 
         # Recompute insertion predecessor after timeline changed.
-        overlapping_task = resource.timeline.find_overlapping_task(dt_task)
+        overlapping_task = resource.timeline.find_first_overlapping_task(dt_task)
         if overlapping_task:
             print(f"Resource {resource.name} has an overlapping task {overlapping_task.name} with the downtime starting at {row['start_time']}")
             overlapping_task_idx = resource.timeline.tasks.index(overlapping_task)

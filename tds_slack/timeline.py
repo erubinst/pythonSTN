@@ -46,10 +46,10 @@ class Timeline:
         return downtime_task
     
 
-    def find_overlapping_task(self, new_task):
+    def find_first_overlapping_task(self, new_task):
         # we need to include travel time when considering overlap as well
         # we can access travel time from task to new task and from new task to task but how do we know which one to use? we can check both and if either one causes overlap, we consider it overlapping
-        # 
+        
         new_task_start_location = new_task.locations[0]
         new_task_end_location = new_task.locations[-1]
         for task in self.tasks:
@@ -60,6 +60,19 @@ class Timeline:
             if (np.abs(task.start.lb) - travel_time_to_new_task < new_task.end.ub and np.abs(task.end.lb) + travel_time_from_new_task > new_task.start.ub):
                 return task
         return None
+    
+    def find_overlapping_tasks(self, new_task):
+        overlapping_tasks = []
+        new_task_start_location = new_task.locations[0]
+        new_task_end_location = new_task.locations[-1]
+        for task in self.tasks:
+            task_start_location = task.locations[0]
+            task_end_location = task.locations[-1]
+            travel_time_to_new_task = self.tds.travel_matrix[task_end_location][new_task_start_location]
+            travel_time_from_new_task = self.tds.travel_matrix[new_task_end_location][task_start_location]
+            if (np.abs(task.start.lb) - travel_time_to_new_task < new_task.end.ub and np.abs(task.end.lb) + travel_time_from_new_task > new_task.start.ub):
+                overlapping_tasks.append(task)
+        return overlapping_tasks
     
 
     def find_preceding_task(self, new_task):
