@@ -157,9 +157,7 @@ def task_swap(displaced_task, tds, metric, minimize=True, retraction_metric='sla
     while retracted_queue and num_moves < max_moves:
         current_task = retracted_queue.popleft()   # FIFO matches paper ordering
  
-        # ------------------------------------------------------------------
         # Step 1 — try direct insertion
-        # ------------------------------------------------------------------
         feasible_slots = search_feasible_slots(tds, current_task, [metric])
  
         if feasible_slots:
@@ -172,9 +170,8 @@ def task_swap(displaced_task, tds, metric, minimize=True, retraction_metric='sla
             committed_moves.append((current_task, resource, prior_task))
             continue
  
-        # ------------------------------------------------------------------
+
         # Step 2 — find conflict sets
-        # ------------------------------------------------------------------
         conflict_set_candidates = compute_conflict_sets(
             current_task, tds, metric, protected, retraction_metric
         )
@@ -184,10 +181,9 @@ def task_swap(displaced_task, tds, metric, minimize=True, retraction_metric='sla
             # execute undo stack
             execute_undo_functions(main_undo)
             return False, [], list(retracted_queue) + [current_task]
- 
-        # ------------------------------------------------------------------
+
+
         # Step 3 — retract the best conflict set
-        # ------------------------------------------------------------------
         _, best_conflict_set = conflict_set_candidates[0]
  
         for t in best_conflict_set:
@@ -195,9 +191,8 @@ def task_swap(displaced_task, tds, metric, minimize=True, retraction_metric='sla
             protected.append(t)
             retracted_queue.append(t)
  
-        # ------------------------------------------------------------------
+
         # Step 4 — insert current_task into the now-freed slot
-        # ------------------------------------------------------------------
         feasible_slots = search_feasible_slots(tds, current_task, [metric])
  
         if not feasible_slots:
@@ -213,9 +208,8 @@ def task_swap(displaced_task, tds, metric, minimize=True, retraction_metric='sla
         committed_moves.append((current_task, resource, prior_task))
         num_moves += 1
  
-    # ----------------------------------------------------------------------
+
     # Final outcome
-    # ----------------------------------------------------------------------
     if retracted_queue:
         # Hit max_moves with tasks still waiting — undo everything
         execute_undo_functions(main_undo)
