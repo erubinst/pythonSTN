@@ -49,6 +49,7 @@ class Task:
         # print(f"Task {self.name} sliding slack calculation: end.ub={self.end.ub}, start.lb={self.start.lb}, duration={self.get_duration()}, sliding_slack={sliding_slack}")
         return sliding_slack
     
+    
     def get_max_slot_flexibility(self):
         # find alternate slot with biggest slack
         current_resource = None

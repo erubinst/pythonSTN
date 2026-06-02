@@ -1,5 +1,28 @@
 from tds_slack.utils import execute_undo_functions
 
+
+# function to just check for a feasible slot:
+def has_feasible_slot(tds, task, prior_assignment=None):
+    if not task.capability:
+        return False
+    
+    capability = task.capability
+    for resource in tds.resources.values():
+        if capability not in resource.capabilities:
+            continue
+        
+        # Skip already assigned resource if given (for rescheduling scenarios)
+        if prior_assignment and resource.name == prior_assignment[0].name:
+            has_feasible_slot = resource.timeline.has_feasible_slot(task, prior_slot=prior_assignment[1])
+            if has_feasible_slot:
+                return True
+            
+        else:
+            if resource.timeline.has_feasible_slot(task):
+                return True
+
+    return False
+
 def search_feasible_slots(tds, task, metrics, prior_assignment=None):
     """
     Find all feasible slots for a task across all compatible resources.

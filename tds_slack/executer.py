@@ -1,5 +1,6 @@
 from tds_slack.resource import Resource
 from tds_slack.task import Task
+from tds_slack.task_swap import task_swap
 from tds_slack.tds_manager import TDSManager
 from tds_slack.parse import *
 from tds_slack.utils import *
@@ -167,6 +168,7 @@ def send_event(tds, row):
     return removed_tasks
 
 
+
 def send_events(tds, events_df, objective_metric="slack", minimize=True):
     # loop through events and add downtime
     unscheduled_tasks = []
@@ -204,7 +206,6 @@ def send_events_no_reschedule(tds, events_df, objective_metric="slack"):
     return unscheduled_tasks, alternative_options, removed_task_count
 
 
-
 def run_scheduler(request, travel_matrix, objective_metric="flexibility", epoch_date=None, minimize=True, metrics=None):
     tds = upload_request(request, travel_matrix, epoch_date)
 
@@ -216,19 +217,27 @@ def run_scheduler(request, travel_matrix, objective_metric="flexibility", epoch_
     return tds
 
 
-# scenarios_dir = 'slack_scenarios/'
-# scenario = 'scenario_20260326_225541'
-# request_path = scenarios_dir + scenario + '/request.json'
-# travel_path = scenarios_dir + scenario + '/travel_matrix.json'
-# unexpected_downtimes_path = scenarios_dir + scenario + '/future_downtimes.json'
+scenarios_dir = 'scenario_sweeps/'
+scenario = 'scenario_20260601_151102'
+request_path = scenarios_dir + scenario + '/request.json'
+travel_path = scenarios_dir + scenario + '/travel_matrix.json'
+unexpected_downtimes_path = scenarios_dir + scenario + '/future_downtimes.json'
 
-# with open(request_path, 'r') as f:
-#     request_dict = json.load(f)
-# with open(travel_path, 'r') as f:
-#     travel_matrix = json.load(f)
-# events_df = pd.read_json(unexpected_downtimes_path)
+with open(request_path, 'r') as f:
+    request_dict = json.load(f)
+with open(travel_path, 'r') as f:
+    travel_matrix = json.load(f)
+events_df = pd.read_json(unexpected_downtimes_path)
 
-# tds = run_scheduler(request_dict, travel_matrix, objective_metric="makespan", minimize=True)
+tds = run_scheduler(request_dict, travel_matrix, objective_metric="flexibility", minimize=False)
+for _, row in events_df.iterrows():
+    removed_tasks = send_event(tds, row)
+    print(f"Removed tasks for downtime event on resource {row['resource']}: {[t.name for t in removed_tasks]}")
+    for task in removed_tasks:
+        print('---')
+        print(f"Attempting task swap on removed task {task.name}...")
+        swap_results = task_swap(task, tds)
+
 # display_current_schedule(tds)
 # unscheduled_tasks = send_events(tds, events_df, objective_metric="makespan", minimize=True)
 # display_current_schedule(tds)
