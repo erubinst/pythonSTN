@@ -330,13 +330,13 @@ def assign_transport_tasks(resource, task, assignment):
 
         before_resource.insert_task_to_timeline(
             t['before_pickup_task'],
-            'transport',
+            f"{resource.name}_transport",
             t['before_pickup_prior_task']
         )
 
         before_resource.insert_task_to_timeline(
             t['before_dropoff_task'],
-            'transport',
+            f"{resource.name}_transport",
             t['before_dropoff_prior_task']
         )
 
@@ -351,13 +351,13 @@ def assign_transport_tasks(resource, task, assignment):
 
             after_resource.insert_task_to_timeline(
                 t['after_pickup_task'],
-                'transport',
+                f"{resource.name}_transport",
                 t['after_pickup_prior_task']
             )
 
             after_resource.insert_task_to_timeline(
                 t['after_dropoff_task'],
-                'transport',
+                f"{resource.name}_transport",
                 t['after_dropoff_prior_task']
             )
 
@@ -636,13 +636,13 @@ def backtrack_capability_assignments_with_transport(
 
                     # Now explore transporter options
                     for before_resource in tds.resources.values():
-                        if need_before and 'transport' not in before_resource.capabilities:
+                        if need_before and f'{resource.name}_transport' not in before_resource.capabilities:
                             continue
                         if not need_before:
                             before_resource = None
 
                         for after_resource in tds.resources.values():
-                            if need_after and 'transport' not in after_resource.capabilities:
+                            if need_after and f'{resource.name}_transport' not in after_resource.capabilities:
                                 continue
                             if not need_after:
                                 after_resource = None
@@ -652,7 +652,7 @@ def backtrack_capability_assignments_with_transport(
                                 for p in before_resource.timeline.tasks:
                                     if p.end.lb > pickup1.start.ub:
                                         break
-                                    pu1 = before_resource.timeline.try_slot(pickup1, p, 'transport')
+                                    pu1 = before_resource.timeline.try_slot(pickup1, p, f'{resource.name}_transport')
                                     if not pu1:
                                         continue
 
@@ -661,7 +661,7 @@ def backtrack_capability_assignments_with_transport(
                                     ]:
                                         if q.end.lb > dropoff1.start.ub:
                                             break
-                                        du1 = before_resource.timeline.try_slot(dropoff1, q, 'transport')
+                                        du1 = before_resource.timeline.try_slot(dropoff1, q, f'{resource.name}_transport')
                                         if not du1:
                                             continue
 
@@ -670,7 +670,7 @@ def backtrack_capability_assignments_with_transport(
                                             for p2 in after_resource.timeline.tasks:
                                                 if p2.end.lb > pickup2.start.ub:
                                                     break
-                                                pu2 = after_resource.timeline.try_slot(pickup2, p2, 'transport')
+                                                pu2 = after_resource.timeline.try_slot(pickup2, p2, f'{resource.name}_transport')
                                                 if not pu2:
                                                     continue
 
@@ -679,7 +679,7 @@ def backtrack_capability_assignments_with_transport(
                                                 ]:
                                                     if q2.end.lb > dropoff2.start.ub:
                                                         break
-                                                    du2 = after_resource.timeline.try_slot(dropoff2, q2, 'transport')
+                                                    du2 = after_resource.timeline.try_slot(dropoff2, q2, f'{resource.name}_transport')
                                                     if not du2:
                                                         continue
 
@@ -852,7 +852,13 @@ def restore_removed_transport(removal_undo_stack):
             if 'traveler' not in resource.capabilities:
                 capability = f'{resource.name}_presence'
             else:
-                capability = 'transport'
+                capability = next(
+                    (c for c in task.capabilities if c.endswith('_transport')),
+                    None,
+                )
+                if capability is None:
+                    print(f"Warning: Could not determine transport capability for {task.name}")
+                    continue
             
             if prior_task_for_restore is not None and prior_task_for_restore in resource.timeline.tasks:
                 resource.insert_task_to_timeline(task, capability, prev_task=prior_task_for_restore)

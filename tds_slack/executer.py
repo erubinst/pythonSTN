@@ -230,6 +230,8 @@ with open(travel_path, 'r') as f:
 events_df = pd.read_json(unexpected_downtimes_path)
 
 tds = run_scheduler(request_dict, travel_matrix, objective_metric="flexibility", minimize=False)
+# export schedule to csv
+# export_schedule_to_csv(tds)
 for _, row in events_df.iterrows():
     removed_tasks = send_event(tds, row)
     print(f"Removed tasks for downtime event on resource {row['resource']}: {[t.name for t in removed_tasks]}")

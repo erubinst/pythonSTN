@@ -57,20 +57,19 @@ class Timeline:
             task_end_location = task.locations[-1]
             travel_time_to_new_task = self.tds.travel_matrix[task_end_location][new_task_start_location]
             travel_time_from_new_task = self.tds.travel_matrix[new_task_end_location][task_start_location]
-            if (np.abs(task.start.lb) - travel_time_to_new_task < new_task.end.ub and np.abs(task.end.lb) + travel_time_from_new_task > new_task.start.ub):
+            if (np.abs(task.start.lb) - travel_time_to_new_task < new_task.end.ub and np.abs(task.end.ub) + travel_time_from_new_task >np.abs(new_task.start.lb)):
                 return task
         return None
     
+
+    # not considering travel
     def find_overlapping_tasks(self, new_task):
         overlapping_tasks = []
-        new_task_start_location = new_task.locations[0]
-        new_task_end_location = new_task.locations[-1]
         for task in self.tasks:
-            task_start_location = task.locations[0]
-            task_end_location = task.locations[-1]
-            travel_time_to_new_task = self.tds.travel_matrix[task_end_location][new_task_start_location]
-            travel_time_from_new_task = self.tds.travel_matrix[new_task_end_location][task_start_location]
-            if (np.abs(task.start.lb) - travel_time_to_new_task < new_task.end.ub and np.abs(task.end.lb) + travel_time_from_new_task > new_task.start.ub):
+            if (np.abs(task.start.lb) < new_task.end.ub and task.end.ub > np.abs(new_task.start.lb)):
+                # if not downtime or header/footer task, add to overlapping tasks
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
                 overlapping_tasks.append(task)
         return overlapping_tasks
     
@@ -293,6 +292,42 @@ class Timeline:
                 return False
             
         return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel)
+    
+
+    # function to see if there is at least one feasible slot (for quick checks)
+    def has_feasible_slot(self, new_task, starting_task=None, prior_slot=None):
+        # write a new version of map_feasible_slots that breaks when a slot is found and returns True/False
+        if starting_task is None:
+            starting_task = self.tasks[0] if self.tasks else None
+        
+        new_task_lst = new_task.start.ub
+        prior_task = starting_task
+        prior_task_idx = self.tasks.index(prior_task)
+
+        while prior_task is not None and not prior_task.name.endswith('_footer'):
+            if prior_slot and prior_slot == prior_task:
+                # skip this slot and move to the next one
+                prior_task_idx += 1
+                if prior_task_idx < len(self.tasks):
+                    prior_task = self.tasks[prior_task_idx]
+                else:
+                    prior_task = None
+                continue
+
+            prior_eft = prior_task.end.lb
+            if prior_eft > new_task_lst:
+                break
+            undo_stack = self.try_slot(new_task, prior_task)
+            if undo_stack:
+                execute_undo_functions(undo_stack)
+                return True
+            prior_task_idx += 1
+            if prior_task_idx < len(self.tasks):
+                prior_task = self.tasks[prior_task_idx]
+            else:
+                prior_task = None
+
+        return False
 
 
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):

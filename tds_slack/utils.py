@@ -143,6 +143,6 @@ def export_schedule_to_df(tds, epoch_date_str=None):
     return df
 
 
-def export_schedule_to_csv(tds, epoch_date_str):
+def export_schedule_to_csv(tds, epoch_date_str=None):
     df = export_schedule_to_df(tds, epoch_date_str)
     df.to_csv("tds_schedule_export.csv", index=False)

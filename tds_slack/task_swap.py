@@ -16,8 +16,7 @@ Slot format (from search_feasible_slots):
 from tds_slack.utils import execute_undo_functions
 from slack_search import search_feasible_slots, has_feasible_slot
 from queue import deque
-
-
+import numpy as np
 
 def _get_resource_for_task(task, tds):
     """Return the resource whose timeline currently holds `task`, or None."""
@@ -48,7 +47,7 @@ def _retract_task(task, tds):
 def _score_conflict_set(candidate_set, retraction_metric):
     """
     Score a candidate conflict set for the retraction heuristic.
-    Higher score = prefer to retract this set.
+    Higher score = prefer to retract this set. --> TODO: how does this work with multiple tasks in the conflict set?
  
     retraction_metric controls what we sum across the set:
         'flexibility' — sum of slot and slack (tasks with more alternatives are
@@ -56,11 +55,8 @@ def _score_conflict_set(candidate_set, retraction_metric):
         <placeholder> — add further metric branches here as needed
     """
     if retraction_metric == 'flexibility':
-        total = 0
-        for task in candidate_set:
-            total += task.get_task_flexibility() 
-        return total
-    # placeholder: add other retraction metrics here
+        min_flex = min(task.get_task_flexibility() for task in candidate_set)
+        return (min_flex, -len(candidate_set))  # higher min_flex wins; fewer tasks breaks tie
     raise ValueError(f"Unknown retraction_metric: '{retraction_metric}'")
 
 
@@ -82,11 +78,12 @@ def compute_conflict_sets(task, tds, protected, retraction_metric):
     """
     protected_tasks = {t.name for t in protected}
     overlapping = []
+    # print task bounds 
+    print(f'Computing conflict sets for {task.name} with bounds [{np.abs(task.start.lb)}, {task.end.ub}]...')
     for resource in tds.resources.values():
         if task.capability not in resource.capabilities:
             continue
         for t in resource.timeline.find_overlapping_tasks(task):
-            print(f'Found overlapping task {t.name} for {task.name} on resource {resource.name}.')
             if t.name not in protected_tasks and t not in overlapping:
                 if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
                     continue
@@ -118,7 +115,7 @@ def compute_conflict_sets(task, tds, protected, retraction_metric):
  
         execute_undo_functions(retraction_undo_stacks)
  
-    valid_sets.sort(key=lambda x: x[0], reverse=True)
+    valid_sets.sort(reverse=True)
     return valid_sets
 
 
@@ -192,6 +189,7 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
 
 
         # Step 3 — retract the best conflict set
+        print(f'Found {len(conflict_set_candidates)} conflict set candidates for {current_task.name}. Selecting best set to retract...')
         _, best_conflict_set = conflict_set_candidates[0]
  
         print(f'Best conflict set to retract for {current_task.name}: {[t.name for t in best_conflict_set]}')

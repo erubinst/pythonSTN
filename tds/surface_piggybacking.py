@@ -82,6 +82,7 @@ def is_downtime(row) -> bool:
     # True downtime tasks have capability matching {resource}_presence AND
     # contain _downtime_ in the name. Pickup/dropoff tasks always have
     # capability 'transport' so they can never match here.
+    # TODO update to work with new transport capability naming convention
     return (
         "_downtime_" in row["task_name"]
         and row["capability"] != "transport"

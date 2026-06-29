@@ -265,57 +265,6 @@ class Timeline:
                 prior_task = None
 
         return results            
-
-
-    def map_feasible_slots_linked_tasks(self, task1, task2, starting_task=None):
-        # use for pickup/dropoff
-        if starting_task is None:
-            starting_task = self.tasks[0] if self.tasks else None
-        
-        results = []
-
-        prior1_task = starting_task
-        prior1_task_idx = self.tasks.index(prior1_task)
-        task1_lst = task1.start.ub
-        task2_lst = task2.start.ub
-        
-        while prior1_task is not None and not prior1_task.name.endswith('_footer'):
-            prior1_eft = prior1_task.end.lb
-            if prior1_eft > task1_lst:
-                break
-            
-            undo1_stack = self.try_slot(task1, prior1_task, 'transport')
-            if undo1_stack:
-                # Reset prior2_task for each task1 placement
-                prior2_task = task1  # Start from task1, not starting_task
-                prior2_task_idx = self.tasks.index(prior2_task)
-                
-                while prior2_task is not None and not prior2_task.name.endswith('_footer'):
-                    prior2_eft = prior2_task.end.lb
-                    if prior2_eft > task2_lst:
-                        break
-                    undo2_stack = self.try_slot(task2, prior2_task, 'transport')
-                    if undo2_stack:
-                        results.append({
-                            'task1_prior_task': prior1_task,
-                            'task2_prior_task': prior2_task,
-                            'total_travel': self.tds.sum_total_travel()
-                        })
-                        execute_undo_functions(undo2_stack)
-
-                    prior2_task_idx += 1
-                    if prior2_task_idx < len(self.tasks):
-                        prior2_task = self.tasks[prior2_task_idx]
-                    else:
-                        prior2_task = None
-                execute_undo_functions(undo1_stack)
-                
-            prior1_task_idx += 1
-            if prior1_task_idx < len(self.tasks):
-                prior1_task = self.tasks[prior1_task_idx]
-            else:
-                prior1_task = None
-        return results
                 
 
     def try_task_on_timeline(self, prior_task, new_task, post_task, capability, to_travel, from_travel):
@@ -440,14 +389,12 @@ class Timeline:
             self.resource.insert_task_to_timeline(dropoff, f'{self.resource.name}_presence', prev_task=pickup, generate_travel=True)
 
 
-
-
     def generate_possible_pickup_dropoff(self, prev_task, task):
         # TODO: Support undo if does not work
         undo_stack = deque()
         pickup_task = Task(
             name=f'pickup_from_{prev_task.name}_{self.resource.name}',
-            capabilities=[f'{self.resource.name}_presence', 'transport'],
+            capabilities=[f'{self.resource.name}_presence', f'{self.resource.name}_transport'],
             locations=[prev_task.locations[-1], prev_task.locations[-1]],
             tds_manager = self.tds
         )
@@ -458,7 +405,7 @@ class Timeline:
         # undo_stack.append(lambda: self.resource.timeline.tasks.remove(pickup_task))
         dropoff_task = Task(
             name=f'dropoff_at_{task.name}_{self.resource.name}',
-            capabilities=[f'{self.resource.name}_presence', 'transport'],
+            capabilities=[f'{self.resource.name}_presence', f'{self.resource.name}_transport'],
             locations=[task.locations[0], task.locations[0]],
             tds_manager = self.tds
         )

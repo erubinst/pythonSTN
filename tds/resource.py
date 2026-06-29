@@ -1,7 +1,6 @@
 from .timeline import Timeline
 from .config import *
 import pandas as pd
-import numpy as np
 from .utils import minutes_since_cz
 from datetime import datetime
 

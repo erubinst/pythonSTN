@@ -58,21 +58,6 @@ def add_downtimes_to_tds(downtimes_df, tds_manager):
             prev_task = downtime_task
 
 
-def schedule_pd_task(tds, pickup, dropoff):
-    options = []
-    for resource in tds.resources.values():
-        if 'transport' in resource.capabilities:
-            slots = resource.timeline.map_feasible_slots_linked_tasks(pickup, dropoff)
-            for slot in slots:
-                slot['resource'] = resource
-                options.append(slot)
-        best = min(options, key=lambda x: x["total_travel"])
-        # get resource in best
-        resource = best['resource']
-        resource.insert_task_to_timeline(pickup, 'transport', prev_task=best['task1_prior_task'], generate_travel=True)
-        resource.insert_task_to_timeline(dropoff, 'transport', prev_task=best['task2_prior_task'], generate_travel=True)
-
-
 
 def add_tasks_to_tds(tasks_df, tds_manager):
     """
@@ -414,5 +399,4 @@ if __name__ == '__main__':
 # init_schedule = schedule_json_to_df(INITIAL_SCHEDULE_PATH)
 # load_initial_timelines_to_tds(init_schedule, tds)
 # pd_tasks = add_pickup_dropoff(tds)
-# schedule_pd_tasks(tds, pd_tasks)
 # add_return_home_tasks(tds)
