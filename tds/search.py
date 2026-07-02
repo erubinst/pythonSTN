@@ -68,9 +68,6 @@ def find_independent_task_assignment(tds, task, objective=ObjectiveType.MIN_TRAV
             continue
 
         candidate_assignment, candidate_metric = min(assignments, key=lambda x: x[1])
-        print(
-            f"Candidate location {location} for {task.name} has minimum {objective.value} {candidate_metric}"
-        )
 
         if best_metric is None or candidate_metric < best_metric:
             best_assignment = candidate_assignment

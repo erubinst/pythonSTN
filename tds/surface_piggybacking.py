@@ -41,7 +41,7 @@ warnings.filterwarnings("ignore")
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
-DETOUR_THRESHOLD_MINUTES = 20  # max additional travel time to count as piggybacking
+DETOUR_THRESHOLD_MINUTES = 10  # max additional travel time to count as piggybacking
 
 
 # ---------------------------------------------------------------------------
@@ -80,12 +80,11 @@ def is_footer(row) -> bool:
 
 def is_downtime(row) -> bool:
     # True downtime tasks have capability matching {resource}_presence AND
-    # contain _downtime_ in the name. Pickup/dropoff tasks always have
-    # capability 'transport' so they can never match here.
-    # TODO update to work with new transport capability naming convention
+    # contain _downtime_ in the name. Pickup/dropoff tasks always have a
+    # capability name containing transport, so they can never match here.
     return (
         "_downtime_" in row["task_name"]
-        and row["capability"] != "transport"
+        and "transport" not in str(row["capability"]).lower()
         and row["capability"] != "travel"
     )
 

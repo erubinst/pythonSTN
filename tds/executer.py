@@ -18,7 +18,7 @@ from tds.search import (
 # Default objective for scheduling (change here to switch behavior)
 DEFAULT_OBJECTIVE = ObjectiveType.MIN_TRAVEL_TIME
 # Default sort for independent task scheduling (change here to switch sorting)
-DEFAULT_SORT = SortType.FLEXIBILITY
+DEFAULT_SORT = SortType.CAREGIVER_ROUTINE
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -268,6 +268,19 @@ def run_scheduler(request, travel_matrix, epoch_date):
     return df
 
 
+def execute_scheduling_run(request, travel_matrix, epoch_date=EPOCH_DATE):
+    """Run the default scheduler once and return both the schedule and caregiver totals."""
+    tds = upload_request(request, travel_matrix, epoch_date)
+
+    dependent_tasks = schedule_independent_tasks(tds, DEFAULT_OBJECTIVE, DEFAULT_SORT)
+    for dep_task in dependent_tasks:
+        schedule_dependent_task(tds, dep_task, DEFAULT_OBJECTIVE)
+
+    df = export_schedule_to_df(tds, epoch_date)
+    caregiver_time = tds.get_caregiver_total_time()
+    return tds, df, caregiver_time
+
+
 def export_schedule(tds, epoch_date):
     return export_schedule_to_df(tds, epoch_date)
 
@@ -367,19 +380,7 @@ def apply_assignment(tds, assignment):
 if __name__ == '__main__':
     request_data = path_to_dict(REQUEST_PATH)
     travel_data = path_to_dict(TRAVEL_MATRIX_PATH)
-    resources_df, downtimes_df, tasks_df, order_constraints = load_resources_and_tasks(
-        request_data, EPOCH_DATE
-    )
-    tds = TDSManager(travel_data)
-    add_resources_to_tds(resources_df, tds)
-    add_downtimes_to_tds(downtimes_df, tds)
-    add_tasks_to_tds(tasks_df, tds)
-    # TODO fix order constraints
-    # add_order_constraints_to_tds(order_constraints, tds)
-
-    dependent_tasks = schedule_independent_tasks(tds, DEFAULT_OBJECTIVE, DEFAULT_SORT)
-    for dep_task in dependent_tasks:
-        schedule_dependent_task(tds, dep_task, DEFAULT_OBJECTIVE)
+    tds, _, caregiver_time = execute_scheduling_run(request_data, travel_data, EPOCH_DATE)
 
     reduce_like_task_durations(tds)
     print(f"Total task + travel time: {tds.calculate_total_travel_task_time()} minutes")
@@ -390,7 +391,6 @@ if __name__ == '__main__':
     # export to csv
     df = export_schedule_to_df(tds, EPOCH_DATE)
     df.to_csv("schedule.csv", index=False)
-    caregiver_time = tds.get_caregiver_total_time()
     print(f"Caregiver time: {caregiver_time}")
     display_current_schedule(tds, EPOCH_DATE, resource_type='cg')
 

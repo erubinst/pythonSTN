@@ -54,7 +54,7 @@ def make_travel_matrix(locations: list[str], min_t: int = 5, max_t: int = 60) ->
 
 def make_resources(n_resources: int, locations: list[str],
                    caps_range: tuple[int, int], downtime_prob: float,
-                   horizon: int, capability_overlap: float = 0.5) -> list[dict]:
+                   horizon: int, capability_overlap: float = 0.8) -> list[dict]:
     """
     Each resource gets a random number of capabilities in [caps_range[0], caps_range[1]],
     plus its unique presence capability.
@@ -187,7 +187,7 @@ def make_orders(templates: list[dict], locations: list[str],
 
 def make_future_downtimes(resources: list[dict], orders: list[dict],
                           templates: list[dict], locations: list[str],
-                          horizon: int, downtime_count: int = 3) -> list[dict]:
+                         horizon: int, downtime_count: int, downtime_duration: int | None = None) -> list[dict]:
     """
     Generate future downtimes that each target exactly one task's execution window,
     only assigning downtime to a resource that has the required capability for that task.
@@ -262,14 +262,18 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
         due = order["duedate"]
         task_duration = due - earliest
 
-        # Duration: just longer than the task to displace exactly this one task
-        # capped at 90 to avoid consuming too much of the horizon
-        downtime_duration = min(task_duration + 10, 90)
+        # Duration: use explicit downtime_duration if provided, otherwise calculate from task
+        if downtime_duration is None:
+            # Duration: just longer than the task to displace exactly this one task
+            # capped at 90 to avoid consuming too much of the horizon
+            dt_duration = min(task_duration + 10, 90)
+        else:
+            dt_duration = min(downtime_duration, horizon)
 
         # Anchor downtime to start at or just before the task's earliest start,
         # covering the task window without reaching far beyond the due date
         min_start = max(0, earliest - 10)
-        max_start = max(min_start, due - downtime_duration)
+        max_start = max(min_start, due - dt_duration)
 
         candidate_starts = [
             s for s in range(min_start, max_start + 1)
@@ -279,7 +283,7 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
             continue
 
         start = random.choice(candidate_starts)
-        end = min(horizon, start + downtime_duration)
+        end = min(horizon, start + dt_duration)
         used_starts_by_resource[resource["name"]].add(start)
 
         future_downtimes.append({
@@ -304,9 +308,10 @@ def generate_scenario(
     due_date_slack_range: tuple = (0, 180),
     horizon: int = 1440,
     downtime_prob: float = 0.5,
-    capability_overlap: float = 0.5,
+    capability_overlap: float = 0.8,
     travel_time_range: tuple = (5, 60),
     future_downtime_count: int = 3,
+    downtime_duration: int | None = None,
     seed: int | None = None,
 ) -> tuple[dict, dict, list[dict]]:
     """
@@ -328,7 +333,7 @@ def generate_scenario(
         travel_time_range[1],
     )
     future_downtimes = make_future_downtimes(resources, orders, templates, locations,
-                                             horizon, future_downtime_count)
+                                             horizon, future_downtime_count, downtime_duration)
 
     request = {
         "resourceTypes": resources,
@@ -359,7 +364,7 @@ def parse_args():
                    help="Maximum number of (non-presence) capabilities per resource")
     p.add_argument("--min-duration",       type=int,   default=15,
                    help="Minimum task duration (minutes)")
-    p.add_argument("--max-duration",       type=int,   default=90,
+    p.add_argument("--max-duration",       type=int,   default=100,
                    help="Maximum task duration (minutes)")
     p.add_argument("--min-slack",          type=int,   default=0,
                    help="Minimum due-date slack beyond task duration (minutes)")
@@ -379,6 +384,8 @@ def parse_args():
                    help="Random seed for reproducibility")
     p.add_argument("--future-downtimes",  type=int,   default=5,
                    help="Number of future downtimes to generate")
+    p.add_argument("--downtime-duration",  type=int,   default=None,
+                   help="Explicit downtime duration in minutes (if None, calculated from task duration)")
     p.add_argument("--output-dir",         type=str,   default="./slack_scenarios",
                    help="Base directory where a unique scenario folder will be created")
     return p.parse_args()
@@ -442,6 +449,7 @@ def main():
         capability_overlap=args.capability_overlap,
         travel_time_range=(args.min_travel, args.max_travel),
         future_downtime_count=args.future_downtimes,
+        downtime_duration=args.downtime_duration,
         seed=args.seed,
     )
 

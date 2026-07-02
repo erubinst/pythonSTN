@@ -41,24 +41,39 @@ class TDSManager:
         for resource in self.resources.values():
             if resource.type == 'cg':
                 total_time = 0
-                # sum task durations (skip headers/footers/downtime)
+                relevant_timepoints = set()
                 for task in resource.timeline.tasks:
-                    if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
-                        continue
-                    total_time += task.get_duration()
-
-                # sum travel edges for this resource once (use absolute weights to match sum_total_travel)
-                travel_time = sum(
-                    np.abs(data.get("weight", 0))
-                    for _, _, key, data in self.stn.edges(keys=True, data=True)
                     if (
+                        task.name.endswith('_header')
+                        or task.name.endswith('_footer')
+                        or 'downtime' in task.name
+                        or task.caregiver_routine
+                    ):
+                        continue
+                    
+                    total_time += task.get_duration()
+                    relevant_timepoints.add(task.start.name)
+                    relevant_timepoints.add(task.end.name)
+
+                travel_edges = {}
+                for start_node, end_node, key, data in self.stn.edges(keys=True, data=True):
+                    if not (
                         isinstance(key, tuple)
                         and len(key) > 1
                         and key[1] == "travel"
-                        and not np.isinf(data.get("weight", 0))
                         and key[0] == resource.name
-                    )
-                )
+                        and not np.isinf(data.get("weight", 0))
+                    ):
+                        continue
+                    if start_node not in relevant_timepoints and end_node not in relevant_timepoints:
+                        continue
+
+                    edge_id = (frozenset((start_node, end_node)), key)
+                    if edge_id in travel_edges:
+                        continue
+                    travel_edges[edge_id] = np.abs(data.get("weight", 0))
+
+                travel_time = sum(travel_edges.values())
                 total_time += travel_time
                 caregiver_time[resource.name] = int(total_time)
         return caregiver_time
