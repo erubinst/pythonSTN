@@ -254,7 +254,9 @@ class Timeline:
             if undo_stack:
                 results.append({
                     'task1_prior_task': prior_task,
-                    'total_travel': self.tds.sum_total_travel()
+                    'total_travel': self.tds.sum_total_travel(),
+                    'total_caregiver_time': self.tds.get_caregiver_total_time(),
+                    'total_caregiver_time_sum': self.tds.sum_total_caregiver_time(),
                 })
                 execute_undo_functions(undo_stack)
 

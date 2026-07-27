@@ -19,12 +19,12 @@ from pathlib import Path
 
 
 DEFAULT_REQUEST_PATH = Path(
-    "/Users/erubinst/ICLL/pythonSTN/tds/scenarios/combined_scenario_4_pairs/request.json"
+    "/Users/erubinst/ICLL/pythonSTN/tds/projected_week/no_crossover/request.json"
 )
 DEFAULT_TRAVEL_MATRIX_PATH = Path(
-    "/Users/erubinst/ICLL/pythonSTN/tds/scenarios/combined_scenario_4_pairs/travel_matrix.json"
+    "/Users/erubinst/ICLL/pythonSTN/tds/projected_week/no_crossover/travel_matrix.json"
 )
-DEFAULT_OUTPUT_DIR = Path("/Users/erubinst/ICLL/pythonSTN/tds/scenarios")
+DEFAULT_OUTPUT_DIR = Path("/Users/erubinst/ICLL/pythonSTN/tds/projected_week/crossover")
 
 
 def parse_args() -> argparse.Namespace:

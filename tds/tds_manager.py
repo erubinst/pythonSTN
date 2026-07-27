@@ -79,6 +79,11 @@ class TDSManager:
         return caregiver_time
 
 
+    def sum_total_caregiver_time(self):
+        caregiver_time = self.get_caregiver_total_time()
+        return sum(caregiver_time.values())
+
+
     def get_driver_capabilities(self):
         driver_capabilities = set()
 

@@ -27,7 +27,9 @@ from tds.executer import execute_scheduling_run
 from tds.surface_piggybacking import detect_piggybacking
 
 
-DEFAULT_SWEEP_ROOT = Path("/Users/erubinst/ICLL/pythonSTN/tds/scenarios/og_pairs_crossover_4")
+
+
+DEFAULT_SWEEP_ROOT = Path("/Users/erubinst/ICLL/pythonSTN/tds/projected_week/crossover/og_pairs_crossover_4")  # Change this to your sweep root path
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,7 +115,7 @@ def main() -> None:
         request = load_json(request_path)
         travel_matrix = load_json(travel_matrix_path)
 
-        _, schedule_df, caregiver_time = execute_scheduling_run(request, travel_matrix, EPOCH_DATE)
+        tds, schedule_df, caregiver_time = execute_scheduling_run(request, travel_matrix, EPOCH_DATE)
 
         schedule_path = scenario_dir / args.schedule_filename
         schedule_df.to_csv(schedule_path, index=False)
@@ -129,6 +131,8 @@ def main() -> None:
             "schedule_path": str(schedule_path),
             "piggybacking_path": str(piggyback_path),
             "total_caregiver_time": total_caregiver_time(caregiver_time),
+            "total_travel": tds.sum_total_travel(),
+            "total_task_travel_time": tds.calculate_total_travel_task_time(),
             "piggybacking_count": total_piggybacking_count(piggyback_df),
         }
         row.update(flatten_caregiver_time(caregiver_time))
@@ -138,12 +142,19 @@ def main() -> None:
         print(f"Wrote {piggyback_path}")
 
     detailed_df = pd.DataFrame(summary_rows).fillna(0)
+    caregiver_time_columns = [column for column in detailed_df.columns if column.startswith("caregiver_time__")]
+    caregiver_time_aggregations = {
+        f"avg_{column}": (column, "mean")
+        for column in caregiver_time_columns
+    }
     summary_df = (
         detailed_df.groupby("combined_caregiver_count", as_index=False)
         .agg(
             scenario_count=("scenario_name", "count"),
             avg_total_caregiver_time=("total_caregiver_time", "mean"),
+            avg_total_travel=("total_travel", "mean"),
             avg_piggybacking_count=("piggybacking_count", "mean"),
+            **caregiver_time_aggregations,
         )
         .sort_values("combined_caregiver_count")
     )

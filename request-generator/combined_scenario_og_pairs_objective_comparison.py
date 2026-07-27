@@ -27,10 +27,11 @@ from tds.utils import export_schedule_to_df, path_to_dict
 
 
 DEFAULT_SCENARIO_DIR = Path(
-    "/Users/erubinst/ICLL/pythonSTN/tds/scenarios/combined_scenario_4_pairs"
+    "/Users/erubinst/ICLL/pythonSTN/tds/projected_week/no_crossover"
 )
 
 OBJECTIVE_RUNS = [
+    ("min_caregiver", ObjectiveType.MIN_CAREGIVER_TIME, SortType.CAREGIVER_ROUTINE),
     ("min_travel", ObjectiveType.MIN_TRAVEL_TIME, SortType.CAREGIVER_ROUTINE),
     ("min_makespan", ObjectiveType.MIN_MAKESPAN, SortType.FLEXIBILITY),
 ]

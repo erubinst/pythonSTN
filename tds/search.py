@@ -5,6 +5,7 @@ import random
 
 class ObjectiveType(Enum):
     MIN_TRAVEL_TIME = "min_travel_time"
+    MIN_CAREGIVER_TIME = "min_caregiver_time"
     MIN_COMPLETION_TIME = "min_completion_time"
     MIN_MAKESPAN = "min_makespan"
 
@@ -213,6 +214,9 @@ def select_best_assignment(assignments, task_name, objective=ObjectiveType.MIN_T
         print(f'No possible assignments for {task_name}')
         return None
 
+    def caregiver_time_score(assignment):
+        return assignment.get('total_caregiver_time_sum', assignment['total_caregiver_time'])
+
     if objective == ObjectiveType.MIN_TRAVEL_TIME:
         # First minimize travel, then use ride time as tiebreaker
         min_travel = min(a['total_travel'] for a in assignments)
@@ -227,6 +231,21 @@ def select_best_assignment(assignments, task_name, objective=ObjectiveType.MIN_T
 
         best = min(min_travel_assignments, key=lambda a: a['total_ride_time'])
         print(f'Selected assignment with ride time {best["total_ride_time"]}')
+
+    elif objective == ObjectiveType.MIN_CAREGIVER_TIME:
+        # First minimize total caregiver time, then use travel as tiebreaker
+        min_caregiver_time = min(caregiver_time_score(a) for a in assignments)
+        min_caregiver_assignments = [
+            a for a in assignments if caregiver_time_score(a) == min_caregiver_time
+        ]
+
+        print(
+            f'Found {len(min_caregiver_assignments)} assignments '
+            f'with minimal caregiver time {min_caregiver_time} for {task_name}'
+        )
+
+        best = min(min_caregiver_assignments, key=lambda a: a['total_travel'])
+        print(f'Selected assignment with travel {best["total_travel"]}')
 
     elif objective == ObjectiveType.MIN_COMPLETION_TIME:
         # Minimize total completion time, then use travel as tiebreaker
@@ -511,6 +530,8 @@ def backtrack_capability_assignments_with_transport(
             'capability_assignment': list(current_assignment),
             'transport_assignment': list(transport_assignment),
             'total_travel': tds.sum_total_travel(),
+            'total_caregiver_time': tds.get_caregiver_total_time(),
+            'total_caregiver_time_sum': tds.sum_total_caregiver_time(),
             'total_ride_time': tds.sum_total_ride_time(),
             'total_completion_time': tds.sum_total_completion_time(),
             'makespan': tds.min_makespan()
