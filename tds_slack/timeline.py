@@ -9,6 +9,7 @@ class Timeline:
         self.resource = resource
         self.tds = tds_manager
         self.tasks = [] 
+        self.last_executed_task = None
     
     def create_header_footer(self, global_start=0, global_end=10000):
         """Create header and footer tasks for the timeline."""
@@ -119,6 +120,17 @@ class Timeline:
         self.tasks.remove(task)
         if generate_undo:
             undo_stack.append((f'restoring {task.name} to {self.resource.name} timeline list', lambda: self.tasks.insert(task_idx, task)))
+        # set task to unscheduled
+        task.status = "unscheduled"
+        if generate_undo:
+            undo_stack.append((f'setting {task.name} status back to scheduled', lambda: setattr(task, 'status', 'scheduled')))
+
+        # remove constraint to now point if now point exists
+        if self.tds.now is not None:
+            self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
+            if generate_undo:
+                undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
+
         return undo_stack if generate_undo else None
 
 
@@ -297,11 +309,15 @@ class Timeline:
     # function to see if there is at least one feasible slot (for quick checks)
     def has_feasible_slot(self, new_task, starting_task=None, prior_slot=None):
         # write a new version of map_feasible_slots that breaks when a slot is found and returns True/False
-        if starting_task is None:
-            starting_task = self.tasks[0] if self.tasks else None
+
+        if starting_task is not None:
+            prior_task = starting_task
+        elif self.last_executed_task is not None:
+            prior_task = self.last_executed_task
+        else:
+            prior_task = self.tasks[0]
         
         new_task_lst = new_task.start.ub
-        prior_task = starting_task
         prior_task_idx = self.tasks.index(prior_task)
 
         while prior_task is not None and not prior_task.name.endswith('_footer'):
@@ -331,14 +347,17 @@ class Timeline:
 
 
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
-        if starting_task is None:
-            starting_task = self.tasks[0] if self.tasks else None
+        if starting_task is not None:
+            prior_task = starting_task
+        elif self.last_executed_task is not None:
+            prior_task = self.last_executed_task
+        else:
+            prior_task = self.tasks[0]
 
         new_task_lst = new_task.start.ub 
         results = []
         
         # Start scanning from starting_task
-        prior_task = starting_task
         prior_task_idx = self.tasks.index(prior_task)
 
         while prior_task is not None and not prior_task.name.endswith('_footer'):
@@ -441,6 +460,9 @@ class Timeline:
                 execute_undo_functions(undo_stack)
                 return False
             undo_stack.append((f'removing travel btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "travel"))))
+        # set task to scheduled
+        new_task.status = "scheduled"
+        undo_stack.append((f'setting {new_task.name} status back to unscheduled', lambda: setattr(new_task, 'status', 'unscheduled')))
         return undo_stack
 
 

@@ -10,6 +10,31 @@ class TDSManager:
         self.tasks = {}         # name or order -> Task
         self.cz = Timepoint('zero', self, add_to_stn=False)
         self.travel_matrix = travel_matrix
+        self.now = None  # will be set when simulation starts
+
+
+    def print_now_edges(self):
+        print('Edges incident to STN node "now":')
+        for start_node, end_node, key, data in self.stn.edges("now", keys=True, data=True):
+            print(f"  {start_node} -> {end_node} | key={key} | data={data}")
+
+
+    def create_now_tp(self):
+        """Create a timepoint to represent the current time in the simulation."""
+        self.now = Timepoint('now', self, add_to_stn=True)
+        # to start, now tp is constrained to be after the zero tp
+        self.cz.add_constraint(self.now, ('all', 'now_after_zero'), min_gap=0, max_gap=np.inf)
+        print(f"Created now timepoint at {np.abs(self.now.lb)}. Constrained to be after zero timepoint.")
+        # all scheduled tasks will have their start timepoint constrained to be after the now timepoint
+        for task in self.tasks.values():
+            if task.status == 'scheduled' and not task.name.endswith('_header') and not task.name.endswith('_footer'):
+                self.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)
+
+
+    def update_now_tp(self, new_time):
+        """Update the now timepoint to a new time."""
+        # Rebuild the now-after-zero constraint instead of strengthening it in place.
+        self.cz.add_constraint(self.now, ('all', 'now_after_zero'), min_gap=new_time, max_gap=np.inf)
 
 
     def find_task_by_timepoint(self, stn_tp):
@@ -39,7 +64,11 @@ class TDSManager:
         for task in self.tasks.values():
             if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                 continue
-            total_diff += task.get_completion_time_diff()
+            if self.now is not None:
+                if task.status in ['scheduled', 'executing']:
+                    total_diff += task.get_completion_time_diff()
+            else:
+                total_diff += task.get_completion_time_diff()
         return total_diff
     
 
@@ -60,7 +89,11 @@ class TDSManager:
             for task in resource.timeline.tasks:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
-                total_max_slot_flexibility += task.get_max_slot_flexibility()
+                if self.now is not None:
+                    if task.status in ['scheduled', 'executing']:
+                        total_max_slot_flexibility += task.get_max_slot_flexibility()
+                else:
+                    total_max_slot_flexibility += task.get_max_slot_flexibility()
         return total_max_slot_flexibility
     
 
@@ -71,7 +104,12 @@ class TDSManager:
             for task in resource.timeline.tasks:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
-                total_flexibility += task.get_task_flexibility()
+                # if a now timepoint is set, we only count flexibility for executing and scheduled tasks
+                if self.now is not None:
+                    if task.status in ['scheduled', 'executing']:
+                        total_flexibility += task.get_task_flexibility()
+                else:
+                    total_flexibility += task.get_task_flexibility()
         return total_flexibility
     
 
@@ -82,7 +120,11 @@ class TDSManager:
             for task in resource.timeline.tasks:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
-                total_slack += task.get_sliding_slack()
+                if self.now is not None:
+                    if task.status in ['scheduled', 'executing']:
+                        total_slack += task.get_sliding_slack()
+                else:
+                    total_slack += task.get_sliding_slack()
         return total_slack
     
 
@@ -93,22 +135,42 @@ class TDSManager:
             for task in resource.timeline.tasks:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
-                total_slot += task.get_slot_flexibility()
+                if self.now is not None:
+                    if task.status in ['scheduled', 'executing']:
+                        total_slot += task.get_slot_flexibility()
+                else:   
+                    total_slot += task.get_slot_flexibility()
         return total_slot
 
 
     def sum_total_travel(self):
-        total_travel_weight = sum(
-            np.abs(data.get("weight", 0))
-            for _, _, key, data in self.stn.edges(keys=True, data=True)
-            if (
-                isinstance(key, tuple)
-                and len(key) > 1
-                and key[1] == "travel"
-                and not np.isinf(data.get("weight", 0))
-                and key[0] in self.resources
+        # if we have a now timepoint, we only count travel after the now timepoint, otherwise we count all travel
+        # TODO: check if this the right way to access
+        if self.now is not None:
+            total_travel_weight = sum(
+                np.abs(data.get("weight", 0))
+                for _, _, key, data in self.stn.edges(keys=True, data=True)
+                if (
+                    isinstance(key, tuple)
+                    and len(key) > 1
+                    and key[1] == "travel"
+                    and not np.isinf(data.get("weight", 0))
+                    and key[0] in self.resources
+                    and self.stn.nodes[key[2]]['timepoint'].lb >= self.now.lb
+                )
             )
-        )
+        else:
+            total_travel_weight = sum(
+                np.abs(data.get("weight", 0))
+                for _, _, key, data in self.stn.edges(keys=True, data=True)
+                if (
+                    isinstance(key, tuple)
+                    and len(key) > 1
+                    and key[1] == "travel"
+                    and not np.isinf(data.get("weight", 0))
+                    and key[0] in self.resources
+                )
+            )
         return total_travel_weight                
 
 

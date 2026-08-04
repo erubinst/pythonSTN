@@ -1,3 +1,6 @@
+import io
+from contextlib import redirect_stdout
+
 from tds_slack.resource import Resource
 from tds_slack.task import Task
 from tds_slack.task_swap import task_swap
@@ -5,6 +8,23 @@ from tds_slack.tds_manager import TDSManager
 from tds_slack.parse import *
 from tds_slack.utils import *
 from tds_slack.slack_search import schedule_task, search_feasible_slots
+import numpy as np
+
+
+def _run_with_expected_stn_output_block(callable_obj):
+    """Capture stdout from expected STN diagnostics and reprint it as an indented block."""
+    buffer = io.StringIO()
+    with redirect_stdout(buffer):
+        result = callable_obj()
+
+    captured = buffer.getvalue().rstrip()
+    if captured:
+        print("[Expected STN Diagnostics] The following inconsistency details are informational:")
+        for line in captured.splitlines():
+            print(f"    {line}")
+        print("[End Expected STN Diagnostics]")
+
+    return result
 
 
 def add_resources_to_tds(resources_df, tds_manager):
@@ -106,15 +126,17 @@ def send_event(tds, row):
         return removed_tasks
 
     while True:
-        result, affected_timepoint = resource.insert_task_to_timeline(
-            dt_task,
-            f'{resource.name}_presence',
-            prev_task=prev_task,
-            return_affected_timepoint=True,
+        # need a statement to catch the print from the insert call in order to specify this is an expected STN inconsistency
+        result, affected_timepoint = _run_with_expected_stn_output_block(
+            lambda: resource.insert_task_to_timeline(
+                dt_task,
+                f'{resource.name}_presence',
+                prev_task=prev_task,
+                return_affected_timepoint=True,
+            )
         )
 
         if result:
-            print(f"Inserted downtime {dt_task.name} on {resource.name}.")
             break
 
         if affected_timepoint is None:
@@ -165,6 +187,8 @@ def send_event(tds, row):
             print(f"No valid previous task found after removals for {dt_task.name} on {resource.name}.")
             break
 
+    # print bounds of downtime task
+    print(f"Downtime task {dt_task.name} inserted on {resource.name} with bounds [{np.abs(dt_task.start.lb)}, {np.abs(dt_task.end.lb)}].")
     return removed_tasks
 
 
@@ -223,26 +247,28 @@ request_path = scenarios_dir + scenario + '/request.json'
 travel_path = scenarios_dir + scenario + '/travel_matrix.json'
 unexpected_downtimes_path = scenarios_dir + scenario + '/future_downtimes.json'
 
-with open(request_path, 'r') as f:
-    request_dict = json.load(f)
-with open(travel_path, 'r') as f:
-    travel_matrix = json.load(f)
-events_df = pd.read_json(unexpected_downtimes_path)
 
-tds = run_scheduler(request_dict, travel_matrix, objective_metric="flexibility", minimize=False)
-# export schedule to csv
-# export_schedule_to_csv(tds)
-for _, row in events_df.iterrows():
-    removed_tasks = send_event(tds, row)
-    print(f"Removed tasks for downtime event on resource {row['resource']}: {[t.name for t in removed_tasks]}")
-    for task in removed_tasks:
-        print('---')
-        print(f"Attempting task swap on removed task {task.name}...")
-        swap_results = task_swap(task, tds)
+if __name__ == "__main__":
+    with open(request_path, 'r') as f:
+        request_dict = json.load(f)
+    with open(travel_path, 'r') as f:
+        travel_matrix = json.load(f)
+    events_df = pd.read_json(unexpected_downtimes_path)
 
-# display_current_schedule(tds)
-# unscheduled_tasks = send_events(tds, events_df, objective_metric="makespan", minimize=True)
-# display_current_schedule(tds)
-# print(f"Unscheduled tasks after processing events: {[task.name for task in unscheduled_tasks]}")
+    tds = run_scheduler(request_dict, travel_matrix, objective_metric="flexibility", minimize=False)
+    # export schedule to csv
+    # export_schedule_to_csv(tds)
+    for _, row in events_df.iterrows():
+        removed_tasks = send_event(tds, row)
+        print(f"Removed tasks for downtime event on resource {row['resource']}: {[t.name for t in removed_tasks]}")
+        for task in removed_tasks:
+            print('---')
+            print(f"Attempting task swap on removed task {task.name}...")
+            swap_results = task_swap(task, tds)
+
+    # display_current_schedule(tds)
+    # unscheduled_tasks = send_events(tds, events_df, objective_metric="makespan", minimize=True)
+    # display_current_schedule(tds)
+    # print(f"Unscheduled tasks after processing events: {[task.name for task in unscheduled_tasks]}")
 
 

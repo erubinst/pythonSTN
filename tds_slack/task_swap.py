@@ -14,7 +14,7 @@ Slot format (from search_feasible_slots):
 """
 
 from tds_slack.utils import execute_undo_functions
-from slack_search import search_feasible_slots, has_feasible_slot
+from tds_slack.slack_search import search_feasible_slots, has_feasible_slot
 from queue import deque
 import numpy as np
 
@@ -57,6 +57,9 @@ def _score_conflict_set(candidate_set, retraction_metric):
     if retraction_metric == 'flexibility':
         min_flex = min(task.get_task_flexibility() for task in candidate_set)
         return (min_flex, -len(candidate_set))  # higher min_flex wins; fewer tasks breaks tie
+    if retraction_metric == 'makespan':
+        max_completion = max(np.abs(task.end.lb) for task in candidate_set)
+        return (-max_completion, -len(candidate_set))  # lower max_completion wins; fewer tasks breaks tie
     raise ValueError(f"Unknown retraction_metric: '{retraction_metric}'")
 
 
@@ -155,7 +158,7 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
     committed_moves = []                      # placements made this invocation; needed to undo on failure
     num_moves       = 0
  
-    while retracted_queue and num_moves < max_moves:
+    while retracted_queue and num_moves <= max_moves:
         current_task = retracted_queue.popleft()   # FIFO matches paper ordering
  
         # Step 1 — try direct insertion
@@ -170,7 +173,7 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
             insert_undo = resource.timeline.try_slot(current_task, prior_task)
             main_undo.extend(insert_undo)
             committed_moves.append((current_task, resource, prior_task))
-            print(f'Successfully inserted {current_task.name} with no retractions on {resource.name}.')
+            print(f'Successfully inserted {current_task.name} at {np.abs(current_task.start.lb)} with no retractions on {resource.name}.')
             continue
  
 

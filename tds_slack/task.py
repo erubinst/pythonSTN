@@ -26,6 +26,26 @@ class Task:
         self.tds.add_task_to_manager(self)
 
         self.task_type = task_type
+        self.status = "unscheduled"  # can be "unscheduled", "scheduled", "executing", "completed",
+       
+
+    def begin_execution(self):
+        self.status = "executing"
+        # remove the constraint on its start tp and add a constraint on its end tp to be after the now timepoint
+        self.start.delete_constraint(self.tds.now, ('all', 'start_after_now'))
+        self.tds.now.add_constraint(self.end, ('all', 'end_after_now'), min_gap=0, max_gap=np.inf)
+        
+
+    def complete_execution(self):
+        self.status = "completed"
+        # remove the constraint on its end tpz
+        self.end.delete_constraint(self.tds.now, ('all', 'end_after_now'))
+        # set the last executed task for the resource timeline to this task
+        # TODO: Is there a better way than looping through all resources to find the one that has this task in its timeline? Maybe store a reference to the resource in the task object when it is assigned to a resource.
+        for resource in self.tds.resources.values():
+            if self in resource.timeline.tasks:
+                resource.timeline.last_executed_task = self
+                break
 
     def get_release_time(self):
         # get edge weight with cz to start constraint type 'release_time'
@@ -76,7 +96,7 @@ class Task:
         # sliding slack - difference between duration and task ub - lb
         sliding_slack = self.get_sliding_slack()
         # slot slack - sum of task1_slack on all alternate slots for this task 
-        slot_slack = self.get_max_slot_flexibility()
+        slot_slack = self.get_slot_flexibility()
         total_flexibility = sliding_slack + slot_slack
         return total_flexibility
 
@@ -114,7 +134,11 @@ class Task:
 
     def constrain_after(self, other_task, constraint_type, min_gap=0, max_gap=np.inf, print_inconsistencies=True, return_affected_timepoint=False):
         # sequence type constraint
-        return other_task.end.add_constraint(self.start, constraint_type, min_gap=min_gap, max_gap=max_gap, print_inconsistencies=print_inconsistencies, return_affected_timepoint=return_affected_timepoint)
+        # if other_task is a tp not a task, just call with the tp
+        if isinstance(other_task, Timepoint):
+            return self.start.add_constraint(other_task, constraint_type, min_gap=min_gap, max_gap=max_gap, print_inconsistencies=print_inconsistencies, return_affected_timepoint=return_affected_timepoint)
+        else:
+            return other_task.end.add_constraint(self.start, constraint_type, min_gap=min_gap, max_gap=max_gap, print_inconsistencies=print_inconsistencies, return_affected_timepoint=return_affected_timepoint)
 
     # call on prior task, add constraint with next task start
     def restore_constraint_btwn(self, next_task, constraint_type, min_gap=0, max_gap=np.inf):

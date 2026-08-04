@@ -1,4 +1,5 @@
 from .timeline import Timeline
+import numpy as np
 
 class Resource:
     def __init__(self, name, capabilities, base_location, tds_manager):
@@ -15,6 +16,11 @@ class Resource:
         # Ensure task is appended via timeline (this will add STN ordering when prev task given)
         if capability not in self.capabilities:
             raise ValueError(f"Resource '{self.name}' does not have capability '{capability}'")
+        # set status of task to scheduled
+        task.status = "scheduled"
+        if self.tds.now is not None:
+            # we have a now tp so we need to add a constraint on the task start tp to be after now tp
+            self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)
         return self.timeline.insert_task(task, prev_task, generate_travel=generate_travel, return_affected_timepoint=return_affected_timepoint)
 
     def remove_task_from_timeline(self, task):

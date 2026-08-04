@@ -16,7 +16,7 @@ from tds.search import (
 )
 
 # Default objective for scheduling (change here to switch behavior)
-DEFAULT_OBJECTIVE = ObjectiveType.MIN_TRAVEL_TIME
+DEFAULT_OBJECTIVE = ObjectiveType.MIN_CAREGIVER_TIME
 # Default sort for independent task scheduling (change here to switch sorting)
 DEFAULT_SORT = SortType.CAREGIVER_ROUTINE
 
@@ -392,6 +392,7 @@ if __name__ == '__main__':
     df = export_schedule_to_df(tds, EPOCH_DATE)
     df.to_csv("schedule.csv", index=False)
     print(f"Caregiver time: {caregiver_time}")
+    print(f"Average time per caregiver: {tds.sum_total_caregiver_time() / len(caregiver_time)} minutes")
     display_current_schedule(tds, EPOCH_DATE, resource_type='cg')
 
 

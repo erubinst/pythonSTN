@@ -158,6 +158,6 @@ def schedule_task(tds, task, objective_metric, minimize=True, other_metrics = No
     best_resource = best_slot['resource']
     
     # Schedule the task on the best resource
-    best_resource.timeline.insert_task(task, prev_task=best_slot['task1_prior_task'], generate_travel=True)
+    best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True)
     # return flexibility metric
     return best_slot.get(f'{objective_metric}', 0)
