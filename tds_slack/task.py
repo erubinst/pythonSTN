@@ -31,8 +31,11 @@ class Task:
 
     def begin_execution(self):
         self.status = "executing"
+        # add a constraint from cz to start tp to ensure that the task cannot start before the now timepoint
+        current_time = np.abs(self.tds.now.lb)
         # remove the constraint on its start tp and add a constraint on its end tp to be after the now timepoint
         self.start.delete_constraint(self.tds.now, ('all', 'start_after_now'))
+        self.tds.cz.add_constraint(self.start, ('all', 'start_after_current_time'), min_gap=current_time, max_gap=np.inf)
         self.tds.now.add_constraint(self.end, ('all', 'end_after_now'), min_gap=0, max_gap=np.inf)
         
 

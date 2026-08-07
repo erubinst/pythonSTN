@@ -50,10 +50,15 @@ class Timeline:
     def find_first_overlapping_task(self, new_task):
         # we need to include travel time when considering overlap as well
         # we can access travel time from task to new task and from new task to task but how do we know which one to use? we can check both and if either one causes overlap, we consider it overlapping
+
+        # can only consider scheduled tasks here for potential overlaps
         
         new_task_start_location = new_task.locations[0]
         new_task_end_location = new_task.locations[-1]
         for task in self.tasks:
+            # if task is not executing or scheduled, skip it
+            if task.status not in ['scheduled']:
+                continue
             task_start_location = task.locations[0]
             task_end_location = task.locations[-1]
             travel_time_to_new_task = self.tds.travel_matrix[task_end_location][new_task_start_location]
@@ -70,6 +75,8 @@ class Timeline:
             if (np.abs(task.start.lb) < new_task.end.ub and task.end.ub > np.abs(new_task.start.lb)):
                 # if not downtime or header/footer task, add to overlapping tasks
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                if task.status not in ['scheduled']:
                     continue
                 overlapping_tasks.append(task)
         return overlapping_tasks
@@ -121,15 +128,20 @@ class Timeline:
         if generate_undo:
             undo_stack.append((f'restoring {task.name} to {self.resource.name} timeline list', lambda: self.tasks.insert(task_idx, task)))
         # set task to unscheduled
+                # remove constraint to now point if now point exists
+        if self.tds.now is not None:
+            if task.status == "scheduled":
+                self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
+                if generate_undo:
+                    undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
+            elif task.status == "executing":
+                self.tds.now.delete_constraint(task.end, ('all', 'end_after_now'))
+                if generate_undo:
+                    undo_stack.append((f'restoring end_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.end, ('all', 'end_after_now'), min_gap=0, max_gap=np.inf)))
+
         task.status = "unscheduled"
         if generate_undo:
             undo_stack.append((f'setting {task.name} status back to scheduled', lambda: setattr(task, 'status', 'scheduled')))
-
-        # remove constraint to now point if now point exists
-        if self.tds.now is not None:
-            self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
-            if generate_undo:
-                undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
 
         return undo_stack if generate_undo else None
 
@@ -347,6 +359,7 @@ class Timeline:
 
 
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
+        # print current task bounds and now time
         if starting_task is not None:
             prior_task = starting_task
         elif self.last_executed_task is not None:
@@ -359,9 +372,8 @@ class Timeline:
         
         # Start scanning from starting_task
         prior_task_idx = self.tasks.index(prior_task)
-
+        # print current timeline at this point
         while prior_task is not None and not prior_task.name.endswith('_footer'):
-
             if prior_slot and prior_slot == prior_task:
                 # skip this slot and move to the next one
                 prior_task_idx += 1
@@ -398,6 +410,7 @@ class Timeline:
                     results[-1]['max_slot'] = self.tds.sum_max_slot_flexibility()
                 if 'earliest_completion_time' in metrics:
                     results[-1]['earliest_completion_time'] = self.tds.sum_completion_time_diff()
+                results[-1]['new_task_bounds'] = (np.abs(new_task.start.lb), new_task.end.ub)
                 execute_undo_functions(undo_stack)
 
             prior_task_idx += 1
@@ -415,6 +428,15 @@ class Timeline:
         prior_idx = self.tasks.index(prior_task)
         self.tasks.insert(prior_idx + 1, new_task)
         undo_stack.append((f'removing {new_task.name} from {self.resource.name} timeline list', lambda: self.tasks.remove(new_task)))
+        previous_task_status = new_task.status
+        new_task.status = "scheduled"
+        undo_stack.append((f'setting {new_task.name} status back to {previous_task_status}', lambda: setattr(new_task, 'status', previous_task_status)))
+        if self.tds.now is not None:
+            after_now_constraint = self.tds.now.add_constraint(new_task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf, print_inconsistencies=False)
+            if not after_now_constraint:
+                execute_undo_functions(undo_stack)
+                return False
+            undo_stack.append((f'removing start_after_now constraint for {new_task.name}', lambda: self.tds.now.delete_constraint(new_task.start, ('all', 'start_after_now'))))
 
         # Constraint 1: sequence after prior_task
         constraint1 = new_task.constrain_after(prior_task, (self.resource.name, "sequence"), print_inconsistencies=False)
@@ -460,9 +482,7 @@ class Timeline:
                 execute_undo_functions(undo_stack)
                 return False
             undo_stack.append((f'removing travel btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "travel"))))
-        # set task to scheduled
-        new_task.status = "scheduled"
-        undo_stack.append((f'setting {new_task.name} status back to unscheduled', lambda: setattr(new_task, 'status', 'unscheduled')))
+
         return undo_stack
 
 

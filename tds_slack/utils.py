@@ -18,11 +18,13 @@ def path_to_dict(path):
     return data
 
 
-def execute_undo_functions(undo_info):
+def execute_undo_functions(undo_info, show_info=False):
     while undo_info: # pop in LIFO order
         undo_fn_info = undo_info.pop()
         if isinstance(undo_fn_info, tuple):
             name, undo_fn = undo_fn_info
+            if show_info:
+                print(f"Executing undo function: {name}")
             undo_fn()
         else:
             undo_fn_info()

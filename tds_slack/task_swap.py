@@ -164,12 +164,12 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
         # Step 1 — try direct insertion
         print(f'Attempting to insert {current_task.name} with no retractions...')
         feasible_slots = search_feasible_slots(tds, current_task, [metric])
+        # print(f'Feasible slots found: {feasible_slots}')
  
         if feasible_slots:
             slot = _best_slot(feasible_slots, metric, minimize)
             resource  = slot['resource']
             prior_task = slot['task1_prior_task']
-
             insert_undo = resource.timeline.try_slot(current_task, prior_task)
             main_undo.extend(insert_undo)
             committed_moves.append((current_task, resource, prior_task))
@@ -229,3 +229,21 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
         return False, [], list(retracted_queue)
  
     return True, committed_moves, []
+
+
+# def full_schedule_regeneration(tds, metric='flexibility', minimize=False):
+#     """
+#     Attempt to reinsert all scheduled tasks into a fresh schedule, created incrementally
+#     Use this to compare to task swap
+#     """
+#     # remove all scheduled tasks from tds
+#     # reschedule all tasks in order of flexibility
+#     removed_tasks = []
+#     for resource in tds.resources.values():
+#         for task in list(resource.timeline.tasks):
+#             if task.status == 'scheduled':
+#                 resource.timeline.remove_task(task)
+#                 removed_tasks.append(task)
+
+#     for task in tds.sort_tasks_by_flexibility(removed_tasks):
+#         best_value = schedule_task(tds, task, metric=metric, minimize=minimize)

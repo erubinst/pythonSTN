@@ -197,16 +197,21 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
     """
     future_downtimes = []
 
-    # Track used downtime start times per resource so names like
-    # "resourceX_downtime_<start>" remain unique.
-    used_starts_by_resource: dict[str, set[int]] = {}
+    def intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
+        """Half-open interval overlap check: [s1, e1) vs [s2, e2)."""
+        return s1 < e2 and s2 < e1
+
+    # Track existing downtime intervals per resource (start, end) so no two
+    # downtimes for the same resource — whether an original resource downtime
+    # or a previously-assigned future downtime — ever overlap in time.
+    intervals_by_resource: dict[str, list[tuple[int, int]]] = {}
     for resource in resources:
         res_name = resource["name"]
-        used_starts_by_resource[res_name] = set(
-            int(dt.get("start_time", -1))
+        intervals_by_resource[res_name] = [
+            (int(dt["start_time"]), int(dt["end_time"]))
             for dt in resource.get("downtimes", [])
-            if "start_time" in dt
-        )
+            if "start_time" in dt and "end_time" in dt
+        ]
 
     if not orders:
         return future_downtimes
@@ -275,16 +280,20 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
         min_start = max(0, earliest - 10)
         max_start = max(min_start, due - dt_duration)
 
+        existing_intervals = intervals_by_resource[resource["name"]]
         candidate_starts = [
             s for s in range(min_start, max_start + 1)
-            if s not in used_starts_by_resource[resource["name"]]
+            if not any(
+                intervals_overlap(s, min(horizon, s + dt_duration), es, ee)
+                for es, ee in existing_intervals
+            )
         ]
         if not candidate_starts:
             continue
 
         start = random.choice(candidate_starts)
         end = min(horizon, start + dt_duration)
-        used_starts_by_resource[resource["name"]].add(start)
+        intervals_by_resource[resource["name"]].append((start, end))
 
         future_downtimes.append({
             "resource": resource["name"],
@@ -364,7 +373,7 @@ def parse_args():
                    help="Maximum number of (non-presence) capabilities per resource")
     p.add_argument("--min-duration",       type=int,   default=15,
                    help="Minimum task duration (minutes)")
-    p.add_argument("--max-duration",       type=int,   default=100,
+    p.add_argument("--max-duration",       type=int,   default=400,
                    help="Maximum task duration (minutes)")
     p.add_argument("--min-slack",          type=int,   default=0,
                    help="Minimum due-date slack beyond task duration (minutes)")

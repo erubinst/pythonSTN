@@ -169,6 +169,11 @@ def send_event(tds, row):
             print(f"Affected task {affected_task.name} is not on resource {resource.name} timeline.")
             break
 
+        # if affected task is not scheduled or executing, we can't remove it
+        if affected_task.status not in ["scheduled", "executing"]:
+            print(f"Affected task {affected_task.name} is not scheduled or executing (status: {affected_task.status}); cannot remove it.")
+            break
+
         resource.timeline.remove_task(affected_task)
         removed_tasks.append(affected_task)
         print(f"Removed affected task {affected_task.name} from {resource.name} to insert {dt_task.name}.")

@@ -90,7 +90,7 @@ class TDSManager:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
                 if self.now is not None:
-                    if task.status in ['scheduled', 'executing']:
+                    if task.status in ['scheduled']:
                         total_max_slot_flexibility += task.get_max_slot_flexibility()
                 else:
                     total_max_slot_flexibility += task.get_max_slot_flexibility()
@@ -106,7 +106,7 @@ class TDSManager:
                     continue
                 # if a now timepoint is set, we only count flexibility for executing and scheduled tasks
                 if self.now is not None:
-                    if task.status in ['scheduled', 'executing']:
+                    if task.status in ['scheduled']:
                         total_flexibility += task.get_task_flexibility()
                 else:
                     total_flexibility += task.get_task_flexibility()
@@ -121,7 +121,7 @@ class TDSManager:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
                 if self.now is not None:
-                    if task.status in ['scheduled', 'executing']:
+                    if task.status in ['scheduled']:
                         total_slack += task.get_sliding_slack()
                 else:
                     total_slack += task.get_sliding_slack()
@@ -136,7 +136,7 @@ class TDSManager:
                 if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                     continue
                 if self.now is not None:
-                    if task.status in ['scheduled', 'executing']:
+                    if task.status in ['scheduled']:
                         total_slot += task.get_slot_flexibility()
                 else:   
                     total_slot += task.get_slot_flexibility()
