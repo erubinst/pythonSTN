@@ -1,6 +1,8 @@
 import numpy as np
+
+import tds
 from .timepoint import Timepoint
-from tds_slack.slack_search import determine_slot_slack, determine_max_slot_slack
+from tds_slack.slack_search import determine_slot_slack, determine_max_slot_slack, determine_slot_slack_on_resource
 
 class Task:
     def __init__(self, 
@@ -27,6 +29,7 @@ class Task:
 
         self.task_type = task_type
         self.status = "unscheduled"  # can be "unscheduled", "scheduled", "executing", "completed",
+        self.flexibility = {} # will be a dict with the resources and their corresponding flexibility values for this task
        
 
     def begin_execution(self):
@@ -65,6 +68,47 @@ class Task:
     
     def capable_resources(self):
         return [r for r in self.tds.resources.values() if r.has_capability(self.capability)]
+
+    def get_assigned_resource(self):
+        for resource in self.tds.resources.values():
+            if self in resource.timeline.tasks:
+                return resource
+        return None
+
+    def update_saved_flexibility(self, resource=None):
+        # if resource is None, recalculate for all capable resources, otherwise just for the given resource
+        if resource is None:
+            for r in self.capable_resources():
+                prev_flex = self.flexibility.get(r.name, 0)
+                self.flexibility[r.name] = self.get_slot_flexibility_for_resource(r)
+                if r.name == self.get_assigned_resource().name:
+                    self.flexibility[r.name] += self.get_sliding_slack()
+                if self.tds.now is not None:
+                    print(f"Task {self.name} flexibility updated for resource {r.name}: previous={prev_flex}, new={self.flexibility[r.name]}")
+        else:
+            prev_flex = self.flexibility.get(resource.name, 0)
+            self.flexibility[resource.name] = self.get_slot_flexibility_for_resource(resource)
+            if resource.name == self.get_assigned_resource().name:
+                self.flexibility[resource.name] += self.get_sliding_slack()
+            if self.tds.now is not None:
+                print(f"Task {self.name} flexibility updated for resource {resource.name}: previous={prev_flex}, new={self.flexibility[resource.name]}")
+    
+
+    def get_slot_flexibility_for_resource(self, resource):
+        if not resource.has_capability(self.capability):
+            return 0
+        current_resource = self.determine_current_resource()
+        slot_slack = determine_slot_slack_on_resource(self, resource, current_resource)
+        return slot_slack
+
+
+    def determine_current_resource(self):
+        # determine which resource this task is currently assigned to, if any
+        for resource in self.tds.resources.values():
+            if self in resource.timeline.tasks:
+                return resource
+        return None
+        
     
     def get_sliding_slack(self):
         # sliding slack - difference between duration and task ub - lb
@@ -75,22 +119,14 @@ class Task:
     
     def get_max_slot_flexibility(self):
         # find alternate slot with biggest slack
-        current_resource = None
-        for resource in self.tds.resources.values():
-            if self in resource.timeline.tasks:
-                current_resource = resource
-                break
+        current_resource = self.determine_current_resource()
         max_slot_slack = determine_max_slot_slack(self.tds, self, current_resource)
         return max_slot_slack
     
 
     def get_slot_flexibility(self):
         # slot slack - sum of task1_slack on all alternate slots for this task 
-        current_resource = None
-        for resource in self.tds.resources.values():
-            if self in resource.timeline.tasks:
-                current_resource = resource
-                break
+        current_resource = self.determine_current_resource()
         slot_slack = determine_slot_slack(self.tds, self, current_resource)
         # print(f"Task {self.name} slot flexibility: {slot_slack}")
         return slot_slack
@@ -102,6 +138,7 @@ class Task:
         slot_slack = self.get_slot_flexibility()
         total_flexibility = sliding_slack + slot_slack
         return total_flexibility
+
 
     def update_task_name(self, new_name):
         old_name = self.name

@@ -89,7 +89,7 @@ class Timeline:
         return max(preceding_tasks, key=lambda t: np.abs(t.end.lb))
 
     
-    def remove_task(self, task, generate_undo=False):
+    def remove_task(self, task, generate_undo=False, save_flexibility=False):
         task_idx = self.tasks.index(task)
         prev_task = self.tasks[task_idx - 1] if task_idx - 1 >= 0 else None
         next_task = self.tasks[task_idx + 1] if task_idx + 1 < len(self.tasks) else None
@@ -142,6 +142,24 @@ class Timeline:
         task.status = "unscheduled"
         if generate_undo:
             undo_stack.append((f'setting {task.name} status back to scheduled', lambda: setattr(task, 'status', 'scheduled')))
+
+        # clear the flexibility dictionary for the task since it is no longer scheduled
+        current_flexibility_dict = task.flexibility.copy()
+        task.flexibility = {}
+        if generate_undo:
+            undo_stack.append((f'restoring {task.name} flexibility dictionary', lambda: setattr(task, 'flexibility', current_flexibility_dict)))
+
+        # update all tasks on the resource's flexibility if save_flexibility is True
+        if save_flexibility:
+            for t in self.tds.tasks.values():
+                if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
+                    continue
+                if t.status == "scheduled":
+                    prev_flex = t.flexibility.get(self.resource.name, 0)
+                    t.update_saved_flexibility(resource=self.resource)
+                    if generate_undo:
+                        undo_stack.append((f'restoring {t.name} flexibility for resource {self.resource.name}', lambda: setattr(t.flexibility, self.resource.name, prev_flex)))
+
 
         return undo_stack if generate_undo else None
 
@@ -293,7 +311,7 @@ class Timeline:
         # self.insert_task(travel_task, prev_task=prev_task, generate_travel=False)
 
 
-    def try_slot(self, new_task, prior_task):
+    def try_slot(self, new_task, prior_task, save_flexibility=False):
         new_task_duration = new_task.get_duration()
         new_task_eft = new_task.end.lb
         prior_task_idx = self.tasks.index(prior_task)
@@ -315,7 +333,7 @@ class Timeline:
             if available_time < required_time:
                 return False
             
-        return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel)
+        return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel, save_flexibility=save_flexibility)
     
 
     # function to see if there is at least one feasible slot (for quick checks)
@@ -369,6 +387,7 @@ class Timeline:
 
         new_task_lst = new_task.start.ub 
         results = []
+        save_flexibility = 'save_flexibility' in metrics
         
         # Start scanning from starting_task
         prior_task_idx = self.tasks.index(prior_task)
@@ -387,7 +406,7 @@ class Timeline:
             if prior_eft > new_task_lst:
                 break
 
-            undo_stack = self.try_slot(new_task, prior_task)
+            undo_stack = self.try_slot(new_task, prior_task, save_flexibility=save_flexibility)
             if undo_stack:
                 results.append({
                     'task1_prior_task': prior_task,
@@ -410,7 +429,8 @@ class Timeline:
                     results[-1]['max_slot'] = self.tds.sum_max_slot_flexibility()
                 if 'earliest_completion_time' in metrics:
                     results[-1]['earliest_completion_time'] = self.tds.sum_completion_time_diff()
-                results[-1]['new_task_bounds'] = (np.abs(new_task.start.lb), new_task.end.ub)
+                if 'save_flexibility' in metrics:
+                    results[-1]['save_flexibility'] = self.tds.sum_saved_flexibility()
                 execute_undo_functions(undo_stack)
 
             prior_task_idx += 1
@@ -422,7 +442,7 @@ class Timeline:
         return results            
                 
 
-    def try_task_on_timeline(self, prior_task, new_task, post_task, to_travel, from_travel):
+    def try_task_on_timeline(self, prior_task, new_task, post_task, to_travel, from_travel, save_flexibility=False):
         undo_stack = deque()
 
         prior_idx = self.tasks.index(prior_task)
@@ -482,6 +502,21 @@ class Timeline:
                 execute_undo_functions(undo_stack)
                 return False
             undo_stack.append((f'removing travel btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "travel"))))
+
+        # if save_flexibility is True, update the flexibility for all tasks on this resource's timeline
+        if save_flexibility:
+            prev_flexibility_dict = new_task.flexibility.copy()
+            new_task.update_saved_flexibility()
+            undo_stack.append((f'restoring {new_task.name} flexibility dictionary', lambda: setattr(new_task, 'flexibility', prev_flexibility_dict)))
+            for t in self.tasks:
+                if t.name != new_task.name:
+                    if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
+                        continue
+                    if t.status == "scheduled":
+                        prev_flexibility_for_resource = t.flexibility.get(self.resource.name, 0)
+                        t.update_saved_flexibility(resource=self.resource)
+                        undo_stack.append((f'restoring {t.name} flexibility for {self.resource.name}', lambda prev_flex=prev_flexibility_for_resource, task=t: task.flexibility.update({self.resource.name: prev_flex})))
+        
 
         return undo_stack
 

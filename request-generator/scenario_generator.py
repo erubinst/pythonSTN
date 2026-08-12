@@ -38,6 +38,11 @@ def make_location_names(n: int) -> list[str]:
     return base + extras
 
 
+def intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
+    """Half-open interval overlap check: [s1, e1) vs [s2, e2)."""
+    return s1 < e2 and s2 < e1
+
+
 def make_travel_matrix(locations: list[str], min_t: int = 5, max_t: int = 60) -> dict:
     """Generate a symmetric travel-time matrix (0 on diagonal)."""
     matrix = {loc: {} for loc in locations}
@@ -185,25 +190,12 @@ def make_orders(templates: list[dict], locations: list[str],
     return orders
 
 
-def make_future_downtimes(resources: list[dict], orders: list[dict],
-                          templates: list[dict], locations: list[str],
-                         horizon: int, downtime_count: int, downtime_duration: int | None = None) -> list[dict]:
+def build_resource_intervals(resources: list[dict]) -> dict[str, list[tuple[int, int]]]:
     """
-    Generate future downtimes that each target exactly one task's execution window,
-    only assigning downtime to a resource that has the required capability for that task.
-
-    Each downtime is sized to cover a single task's window and no more, minimizing
-    multi-task displacement so that recovery depends on finding exactly one alternate slot.
+    Build a mapping of resource name -> list of (start, end) intervals from each
+    resource's existing downtimes. Used to avoid overlapping newly generated
+    downtimes with a resource's pre-existing ones.
     """
-    future_downtimes = []
-
-    def intervals_overlap(s1: int, e1: int, s2: int, e2: int) -> bool:
-        """Half-open interval overlap check: [s1, e1) vs [s2, e2)."""
-        return s1 < e2 and s2 < e1
-
-    # Track existing downtime intervals per resource (start, end) so no two
-    # downtimes for the same resource — whether an original resource downtime
-    # or a previously-assigned future downtime — ever overlap in time.
     intervals_by_resource: dict[str, list[tuple[int, int]]] = {}
     for resource in resources:
         res_name = resource["name"]
@@ -212,87 +204,62 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
             for dt in resource.get("downtimes", [])
             if "start_time" in dt and "end_time" in dt
         ]
+    return intervals_by_resource
 
-    if not orders:
+
+def make_future_downtimes(resources: list[dict], orders: list[dict],
+                          templates: list[dict], locations: list[str],
+                         horizon: int, downtime_count: int,
+                         downtime_duration: int | None = None,
+                         duration_range: tuple[int, int] = (5, 120)) -> list[dict]:
+    """
+    Generate future downtimes arbitrarily: a random resource, random duration
+    (either fixed via downtime_duration or sampled from duration_range), and a
+    random start time, with the only hard constraints being that the downtime
+    cannot extend past the horizon and cannot overlap that resource's other
+    downtimes (existing or previously generated). No task/capability targeting
+    is applied.
+    """
+    future_downtimes = []
+
+    if not resources:
         return future_downtimes
 
-    # Build lookup: task_name -> required capability (from template subtask)
-    task_required_cap: dict[str, str | None] = {}
-    for tmpl in templates:
-        caps = tmpl["subtasks"][0]["requiredCapabilities"]
-        task_required_cap[tmpl["name"]] = caps[0] if caps else None
+    intervals_by_resource = build_resource_intervals(resources)
 
-    # Build eligible (resource, order) pairs where resource has the required capability
-    # and the task window is wide enough to be meaningful
-    eligible_pairs: list[tuple[dict, dict]] = []
-    for order in orders:
-        required_cap = task_required_cap.get(order["name"])
-        task_duration = order["duedate"] - order["earlieststartdate"]
-        if task_duration <= 0:
-            continue
+    attempts = 0
+    max_attempts = downtime_count * 20  # avoid infinite loops if horizon is tight
 
-        capable_resources = []
-        for resource in resources:
-            if required_cap is not None:
-                resource_caps = [
-                    c for c in resource["capabilities"]
-                    if not c.endswith("_presence")
-                ]
-                if required_cap not in resource_caps:
-                    continue
-            capable_resources.append(resource)
+    while len(future_downtimes) < downtime_count and attempts < max_attempts:
+        attempts += 1
 
-        # Only include tasks that have at least 2 capable resources —
-        # tasks with only one capable resource can never be reassigned
-        if len(capable_resources) >= 2:
-            for resource in capable_resources:
-                eligible_pairs.append((resource, order))
+        resource = random.choice(resources)
 
-    if not eligible_pairs:
-        return future_downtimes
-
-    random.shuffle(eligible_pairs)
-
-    seen_pairs: set[tuple[str, str]] = set()
-    for resource, order in eligible_pairs:
-        if len(future_downtimes) >= downtime_count:
-            break
-
-        pair_key = (resource["name"], order["name"])
-        if pair_key in seen_pairs:
-            continue
-        seen_pairs.add(pair_key)
-
-        earliest = order["earlieststartdate"]
-        due = order["duedate"]
-        task_duration = due - earliest
-
-        # Duration: use explicit downtime_duration if provided, otherwise calculate from task
-        if downtime_duration is None:
-            # Duration: just longer than the task to displace exactly this one task
-            # capped at 90 to avoid consuming too much of the horizon
-            dt_duration = min(task_duration + 10, 90)
-        else:
+        # Duration: explicit value if given, otherwise sampled from duration_range,
+        # capped so it can't exceed the horizon.
+        if downtime_duration is not None:
             dt_duration = min(downtime_duration, horizon)
+        else:
+            lo, hi = duration_range
+            hi = min(hi, horizon)
+            lo = min(lo, hi)
+            dt_duration = random.randint(lo, hi) if hi > 0 else 0
 
-        # Anchor downtime to start at or just before the task's earliest start,
-        # covering the task window without reaching far beyond the due date
-        min_start = max(0, earliest - 10)
-        max_start = max(min_start, due - dt_duration)
+        if dt_duration <= 0 or dt_duration > horizon:
+            continue
+
+        # Start time: fully random, just constrained so start + duration <= horizon.
+        start = random.randint(0, horizon - dt_duration)
+        end = start + dt_duration
 
         existing_intervals = intervals_by_resource[resource["name"]]
-        candidate_starts = [
-            s for s in range(min_start, max_start + 1)
-            if not any(
-                intervals_overlap(s, min(horizon, s + dt_duration), es, ee)
-                for es, ee in existing_intervals
-            )
-        ]
-        if not candidate_starts:
+        has_overlap = False
+        for existing_start, existing_end in existing_intervals:
+            if intervals_overlap(start, end, existing_start, existing_end):
+                has_overlap = True
+                break
+        if has_overlap:
             continue
-
-        start = random.choice(candidate_starts)
-        end = min(horizon, start + dt_duration)
         intervals_by_resource[resource["name"]].append((start, end))
 
         future_downtimes.append({

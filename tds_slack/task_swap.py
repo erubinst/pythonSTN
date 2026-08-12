@@ -170,11 +170,18 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
             slot = _best_slot(feasible_slots, metric, minimize)
             resource  = slot['resource']
             prior_task = slot['task1_prior_task']
-            insert_undo = resource.timeline.try_slot(current_task, prior_task)
+            if metric == 'save_flexibility':
+                insert_undo = resource.timeline.try_slot(current_task, prior_task, save_flexibility=True)
+            else:
+                insert_undo = resource.timeline.try_slot(current_task, prior_task)
             main_undo.extend(insert_undo)
             committed_moves.append((current_task, resource, prior_task))
             print(f'Successfully inserted {current_task.name} at {np.abs(current_task.start.lb)} with no retractions on {resource.name}.')
             continue
+
+        if max_moves == 0:
+            print(f'No feasible slot for {current_task.name} and max_moves=0; aborting swap.')
+            return False, [], list(retracted_queue) + [current_task]
  
 
         # Step 2 — find conflict sets
@@ -215,7 +222,10 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
         prior_task = slot['task1_prior_task']
 
         print(f'Inserting {current_task.name} into slot after {prior_task.name if prior_task else "start"} on resource {resource.name} after retracting conflict set.')
-        insert_undo = resource.timeline.try_slot(current_task, prior_task)
+        if metric == 'save_flexibility':
+            insert_undo = resource.timeline.try_slot(current_task, prior_task, save_flexibility=True)
+        else:
+            insert_undo = resource.timeline.try_slot(current_task, prior_task)
         main_undo.extend(insert_undo)
         committed_moves.append((current_task, resource, prior_task))
         num_moves += 1

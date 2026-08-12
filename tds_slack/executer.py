@@ -105,7 +105,7 @@ def upload_request(request, travel_matrix, epoch_date, add_downtimes=True):
     return tds
 
 
-def send_event(tds, row):
+def send_event(tds, row, save_flexibility=False):
     removed_tasks = []
 
     resource = tds.resources[row['resource'].lower()]
@@ -174,7 +174,7 @@ def send_event(tds, row):
             print(f"Affected task {affected_task.name} is not scheduled or executing (status: {affected_task.status}); cannot remove it.")
             break
 
-        resource.timeline.remove_task(affected_task)
+        resource.timeline.remove_task(affected_task, save_flexibility=save_flexibility)
         removed_tasks.append(affected_task)
         print(f"Removed affected task {affected_task.name} from {resource.name} to insert {dt_task.name}.")
 

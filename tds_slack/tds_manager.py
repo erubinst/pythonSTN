@@ -42,6 +42,21 @@ class TDSManager:
             if stn_tp == task.start.name or stn_tp == task.end.name:
                 return task
         return None
+
+
+    def sum_saved_flexibility(self):
+        total_flexibility = 0
+        # loop through timelines
+        for resource in self.resources.values():
+            for task in resource.timeline.tasks:
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                if self.now is not None:
+                    if task.status in ['scheduled']:
+                        total_flexibility += task.flexibility.get(resource.name, 0)
+                else:
+                    total_flexibility += task.flexibility.get(resource.name, 0)
+        return total_flexibility
     
 
     def sort_tasks_by_flexibility(self, task_lst=None):

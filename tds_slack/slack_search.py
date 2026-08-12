@@ -63,6 +63,79 @@ def search_feasible_slots(tds, task, metrics, prior_assignment=None):
     return all_slots
 
 
+def search_feasible_slots_on_resource(task, resource, metrics, prior_assignment=None):
+    """
+    Find all feasible slots for a task on a specific resource.
+    
+    Args:
+        task: Task to search slots for (assumes single capability)
+        resource: Resource to search slots on
+        metrics: List of metrics to evaluate for each slot
+        prior_assignment: Tuple of (resource, prior_task) if the task is already assigned
+
+    Returns:
+        List of dicts containing:
+        - 'resource': Resource object
+        - 'prior_task': Task that this task would be scheduled after
+        - 'metrics': Dictionary of evaluated metrics for this placement
+    """
+    if not task.capability:
+        return []
+    
+    capability = task.capability
+    if capability not in resource.capabilities:
+        return []
+    
+    # Skip already assigned resource if given (for rescheduling scenarios)
+    if prior_assignment and resource.name == prior_assignment[0].name:
+        feasible_slots = resource.timeline.map_feasible_slots(task, metrics, prior_slot=prior_assignment[1])
+    else:
+        # Find all feasible slots for this resource
+        feasible_slots = resource.timeline.map_feasible_slots(task, metrics)
+    
+    # Add resource info to each slot
+    for slot in feasible_slots:
+        slot['resource'] = resource
+    
+    return feasible_slots
+
+
+def determine_slot_slack_on_resource(task, changed_tl_resource, resource):
+    """
+    Determine the slot slack for a given task on a specific resource.
+    
+    Args:
+        tds: TDS manager
+        task: Task to evaluate
+        changed_tl_resource: Resource whose timeline has changed 
+        resource: Currently assigned resource (if any)
+
+    Returns:
+        Slot slack value (int)
+    """
+    metrics = ["slack"] # NEVER call with flexibility as it will cause loop 
+    # unassign the task from its current resource timeline to evaluate potential slack and save undo info
+    if resource:
+        task_idx = resource.timeline.tasks.index(task)
+        prior_task = resource.timeline.tasks[task_idx - 1] if task_idx > 0 else None
+        undo_stack = resource.timeline.remove_task(task, generate_undo=True)
+        # find alternate slots using search feasible slots function
+        prior_assignment = (resource, prior_task)
+    else:
+        prior_assignment = None
+        undo_stack = []
+    alternate_slots = search_feasible_slots_on_resource(task, changed_tl_resource, metrics, prior_assignment=prior_assignment)
+    # on each alternate slot, we sum the task1_slack
+    slot_slack = 0
+    for slot in alternate_slots:
+        slot_slack += slot.get('slack', 0)
+    # reassign the task back to its original resource timeline
+    execute_undo_functions(undo_stack)
+    return slot_slack
+
+
+
+
 def determine_slot_slack(tds, task, resource):
     """
     Determine the slot slack for a given task on a specific resource.
@@ -158,6 +231,9 @@ def schedule_task(tds, task, objective_metric, minimize=True, other_metrics = No
     best_resource = best_slot['resource']
     
     # Schedule the task on the best resource
-    best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True)
+    if objective_metric == 'save_flexibility':
+        best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True, save_flexibility=True)
+    else:
+        best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True)
     # return flexibility metric
     return best_slot.get(f'{objective_metric}', 0)
