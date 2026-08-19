@@ -105,20 +105,13 @@ def plot(df):
             f"{val:.2f}",
             ha="center", va="bottom", fontsize=10, fontweight="bold", color="#3A7A45"
         )
-        if saved > 0:
-            ax2.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() / 2,
-                f"−{saved:.2f} min\nsaved",
-                ha="center", va="center", fontsize=8.5, color="white", fontweight="bold"
-            )
 
     ax2.set_title(f"Avg. Time per Caregiver (across {n_caregivers} ICGs)", fontsize=11, pad=8)
     ax2.set_xlabel(xlabel, fontsize=9.5)
     ax2.set_ylabel("Avg. time per ICG (minutes)", fontsize=10)
     ax2.set_xticks(x)
     ax2.set_xticklabels(x_labels, fontsize=10)
-    ax2.set_ylim(avg_per_icg_min.min() * 0.95, avg_per_icg_min.max() * 1.08)
+    ax2.set_ylim(0, avg_per_icg_min.max() * 1.08)
     ax2.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:.2f}"))
     ax2.grid(axis="y", linestyle="--", alpha=0.5, zorder=0)
     ax2.spines[["top", "right"]].set_visible(False)

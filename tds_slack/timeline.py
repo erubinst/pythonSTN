@@ -48,15 +48,15 @@ class Timeline:
     
 
     def find_first_overlapping_task(self, new_task):
-        # we need to include travel time when considering overlap as well
-        # we can access travel time from task to new task and from new task to task but how do we know which one to use? we can check both and if either one causes overlap, we consider it overlapping
+        # includes travel time on both sides of the candidate task when checking overlap,
+        # since either direction of travel could be what actually causes the conflict
 
-        # can only consider scheduled tasks here for potential overlaps
-        
         new_task_start_location = new_task.locations[0]
         new_task_end_location = new_task.locations[-1]
         for task in self.tasks:
-            # if task is not executing or scheduled, skip it
+            # only scheduled tasks can be displaced, so only they're worth reporting as
+            # "overlapping" here — an executing task's conflict is instead caught by the
+            # STN itself when the insertion is attempted, and is never removable regardless
             if task.status not in ['scheduled']:
                 continue
             task_start_location = task.locations[0]
@@ -88,8 +88,34 @@ class Timeline:
             return None
         return max(preceding_tasks, key=lambda t: np.abs(t.end.lb))
 
-    
+
+    def update_capable_tasks_flexibility(self, exclude_task=None, undo_stack=None):
+        """
+        Refresh the flexibility[self.resource.name] entry for every scheduled task
+        capable of this resource (except exclude_task, which manages its own dict
+        separately, e.g. the task just inserted/removed).
+        """
+        for t in self.tds.tasks.values():
+            if t is exclude_task:
+                continue
+            if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
+                continue
+            if t.status != "scheduled":
+                continue
+            if not self.resource.has_capability(t.capability):
+                continue
+            prev_flex = t.flexibility.get(self.resource.name, 0)
+            t.update_saved_flexibility(resource=self.resource)
+            if undo_stack is not None:
+                undo_stack.append((
+                    f'restoring {t.name} flexibility for resource {self.resource.name}',
+                    lambda task=t, prev=prev_flex: task.flexibility.update({self.resource.name: prev})
+                ))
+
+
     def remove_task(self, task, generate_undo=False, save_flexibility=False):
+        if task.status != "scheduled":
+            raise ValueError(f"Cannot remove {task.name}: only scheduled tasks can be removed (status is '{task.status}').")
         task_idx = self.tasks.index(task)
         prev_task = self.tasks[task_idx - 1] if task_idx - 1 >= 0 else None
         next_task = self.tasks[task_idx + 1] if task_idx + 1 < len(self.tasks) else None
@@ -127,17 +153,12 @@ class Timeline:
         self.tasks.remove(task)
         if generate_undo:
             undo_stack.append((f'restoring {task.name} to {self.resource.name} timeline list', lambda: self.tasks.insert(task_idx, task)))
-        # set task to unscheduled
-                # remove constraint to now point if now point exists
+        # remove constraint to now point if now point exists, then mark the task unscheduled
+        # (task.status is guaranteed 'scheduled' here — anything else is rejected above)
         if self.tds.now is not None:
-            if task.status == "scheduled":
-                self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
-                if generate_undo:
-                    undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
-            elif task.status == "executing":
-                self.tds.now.delete_constraint(task.end, ('all', 'end_after_now'))
-                if generate_undo:
-                    undo_stack.append((f'restoring end_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.end, ('all', 'end_after_now'), min_gap=0, max_gap=np.inf)))
+            self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
+            if generate_undo:
+                undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
 
         task.status = "unscheduled"
         if generate_undo:
@@ -149,17 +170,9 @@ class Timeline:
         if generate_undo:
             undo_stack.append((f'restoring {task.name} flexibility dictionary', lambda: setattr(task, 'flexibility', current_flexibility_dict)))
 
-        # update all tasks on the resource's flexibility if save_flexibility is True
+        # update all tasks capable of this resource's flexibility entry if save_flexibility is True
         if save_flexibility:
-            for t in self.tds.tasks.values():
-                if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
-                    continue
-                if t.status == "scheduled":
-                    prev_flex = t.flexibility.get(self.resource.name, 0)
-                    t.update_saved_flexibility(resource=self.resource)
-                    if generate_undo:
-                        undo_stack.append((f'restoring {t.name} flexibility for resource {self.resource.name}', lambda: setattr(t.flexibility, self.resource.name, prev_flex)))
-
+            self.update_capable_tasks_flexibility(exclude_task=task, undo_stack=undo_stack if generate_undo else None)
 
         return undo_stack if generate_undo else None
 
@@ -167,8 +180,10 @@ class Timeline:
     def insert_task(self, task, prev_task=None, generate_travel=True, return_affected_timepoint=False):
         # TODO: If any of these operations don't work, we have to undo all changes made to add the task, including generating travel
         if prev_task is None:
-            #TODO search for slot
-            pass
+            raise NotImplementedError(
+                f"insert_task requires an explicit prev_task; searching for a slot for {task.name} "
+                "is not implemented here — use search_feasible_slots/map_feasible_slots to pick one first."
+            )
         else:
             undo_stack = deque()
             prev_task_idx = self.tasks.index(prev_task)
@@ -300,21 +315,13 @@ class Timeline:
         if return_affected_timepoint:
             return True, None
         return True
-        # Routine for creating travel task
-        # travel_task = Task(
-        #     name=f"travel_{prev_task.name}_to_{task.name}",
-        #     capability=f'{self.resource.name}_travel',
-        #     locations=[prev_task_location, curr_task_location],
-        #     tds_manager=self.tds,
-        # )
-        # travel_task.add_duration_constraint(travel_time)
-        # self.insert_task(travel_task, prev_task=prev_task, generate_travel=False)
 
 
-    def try_slot(self, new_task, prior_task, save_flexibility=False):
+    def try_slot(self, new_task, prior_task, save_flexibility=False, prior_task_idx=None):
         new_task_duration = new_task.get_duration()
         new_task_eft = new_task.end.lb
-        prior_task_idx = self.tasks.index(prior_task)
+        if prior_task_idx is None:
+            prior_task_idx = self.tasks.index(prior_task)
         next_task_idx = prior_task_idx + 1
         post_task = self.tasks[next_task_idx] if next_task_idx < len(self.tasks) else None
         prior_eft = prior_task.end.lb
@@ -333,80 +340,60 @@ class Timeline:
             if available_time < required_time:
                 return False
             
-        return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel, save_flexibility=save_flexibility)
+        return self.try_task_on_timeline(prior_task, new_task, post_task, to_travel, from_travel, save_flexibility=save_flexibility, prior_idx=prior_task_idx)
     
 
-    # function to see if there is at least one feasible slot (for quick checks)
-    def has_feasible_slot(self, new_task, starting_task=None, prior_slot=None):
-        # write a new version of map_feasible_slots that breaks when a slot is found and returns True/False
-
+    def _scan_candidate_slots(self, new_task, starting_task=None, prior_slot=None):
+        """
+        Yield (prior_task, prior_task_idx) for each position on this timeline
+        new_task could possibly be inserted after, in timeline order. Shared scan
+        skeleton behind has_feasible_slot and map_feasible_slots: starts at
+        starting_task (or the last executed task, or the very first task),
+        skips prior_slot (the task's own current slot, when re-searching after a
+        tentative removal), and stops once a candidate is past new_task's own
+        latest-start bound — nothing later in the timeline could work either.
+        """
         if starting_task is not None:
             prior_task = starting_task
         elif self.last_executed_task is not None:
             prior_task = self.last_executed_task
         else:
             prior_task = self.tasks[0]
-        
+
         new_task_lst = new_task.start.ub
         prior_task_idx = self.tasks.index(prior_task)
 
         while prior_task is not None and not prior_task.name.endswith('_footer'):
             if prior_slot and prior_slot == prior_task:
-                # skip this slot and move to the next one
                 prior_task_idx += 1
-                if prior_task_idx < len(self.tasks):
-                    prior_task = self.tasks[prior_task_idx]
-                else:
-                    prior_task = None
+                prior_task = self.tasks[prior_task_idx] if prior_task_idx < len(self.tasks) else None
                 continue
 
-            prior_eft = prior_task.end.lb
-            if prior_eft > new_task_lst:
+            if prior_task.end.lb > new_task_lst:
                 break
-            undo_stack = self.try_slot(new_task, prior_task)
+
+            yield prior_task, prior_task_idx
+
+            prior_task_idx += 1
+            prior_task = self.tasks[prior_task_idx] if prior_task_idx < len(self.tasks) else None
+
+
+    # function to see if there is at least one feasible slot (for quick checks)
+    def has_feasible_slot(self, new_task, starting_task=None, prior_slot=None):
+        for prior_task, prior_task_idx in self._scan_candidate_slots(new_task, starting_task, prior_slot):
+            undo_stack = self.try_slot(new_task, prior_task, prior_task_idx=prior_task_idx)
             if undo_stack:
                 execute_undo_functions(undo_stack)
                 return True
-            prior_task_idx += 1
-            if prior_task_idx < len(self.tasks):
-                prior_task = self.tasks[prior_task_idx]
-            else:
-                prior_task = None
-
         return False
 
 
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
-        # print current task bounds and now time
-        if starting_task is not None:
-            prior_task = starting_task
-        elif self.last_executed_task is not None:
-            prior_task = self.last_executed_task
-        else:
-            prior_task = self.tasks[0]
-
-        new_task_lst = new_task.start.ub 
         results = []
         save_flexibility = 'save_flexibility' in metrics
-        
-        # Start scanning from starting_task
-        prior_task_idx = self.tasks.index(prior_task)
-        # print current timeline at this point
-        while prior_task is not None and not prior_task.name.endswith('_footer'):
-            if prior_slot and prior_slot == prior_task:
-                # skip this slot and move to the next one
-                prior_task_idx += 1
-                if prior_task_idx < len(self.tasks):
-                    prior_task = self.tasks[prior_task_idx]
-                else:
-                    prior_task = None
-                continue
 
-            prior_eft = prior_task.end.lb
-            if prior_eft > new_task_lst:
-                break
-
-            undo_stack = self.try_slot(new_task, prior_task, save_flexibility=save_flexibility)
+        for prior_task, prior_task_idx in self._scan_candidate_slots(new_task, starting_task, prior_slot):
+            undo_stack = self.try_slot(new_task, prior_task, save_flexibility=save_flexibility, prior_task_idx=prior_task_idx)
             if undo_stack:
                 results.append({
                     'task1_prior_task': prior_task,
@@ -433,19 +420,14 @@ class Timeline:
                     results[-1]['save_flexibility'] = self.tds.sum_saved_flexibility()
                 execute_undo_functions(undo_stack)
 
-            prior_task_idx += 1
-            if prior_task_idx < len(self.tasks):
-                prior_task = self.tasks[prior_task_idx]
-            else:
-                prior_task = None
+        return results
 
-        return results            
-                
 
-    def try_task_on_timeline(self, prior_task, new_task, post_task, to_travel, from_travel, save_flexibility=False):
+    def try_task_on_timeline(self, prior_task, new_task, post_task, to_travel, from_travel, save_flexibility=False, prior_idx=None):
         undo_stack = deque()
 
-        prior_idx = self.tasks.index(prior_task)
+        if prior_idx is None:
+            prior_idx = self.tasks.index(prior_task)
         self.tasks.insert(prior_idx + 1, new_task)
         undo_stack.append((f'removing {new_task.name} from {self.resource.name} timeline list', lambda: self.tasks.remove(new_task)))
         previous_task_status = new_task.status
@@ -503,20 +485,12 @@ class Timeline:
                 return False
             undo_stack.append((f'removing travel btwn {new_task.name} and {post_task.name}', lambda: new_task.remove_constraint_btwn(post_task, (self.resource.name, "travel"))))
 
-        # if save_flexibility is True, update the flexibility for all tasks on this resource's timeline
+        # if save_flexibility is True, update the flexibility for all tasks capable of this resource
         if save_flexibility:
             prev_flexibility_dict = new_task.flexibility.copy()
             new_task.update_saved_flexibility()
             undo_stack.append((f'restoring {new_task.name} flexibility dictionary', lambda: setattr(new_task, 'flexibility', prev_flexibility_dict)))
-            for t in self.tasks:
-                if t.name != new_task.name:
-                    if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
-                        continue
-                    if t.status == "scheduled":
-                        prev_flexibility_for_resource = t.flexibility.get(self.resource.name, 0)
-                        t.update_saved_flexibility(resource=self.resource)
-                        undo_stack.append((f'restoring {t.name} flexibility for {self.resource.name}', lambda prev_flex=prev_flexibility_for_resource, task=t: task.flexibility.update({self.resource.name: prev_flex})))
-        
+            self.update_capable_tasks_flexibility(exclude_task=new_task, undo_stack=undo_stack)
 
         return undo_stack
 

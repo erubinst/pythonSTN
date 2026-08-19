@@ -70,5 +70,4 @@ class Timepoint:
         return self.tds.stn.nodes[self.name]['data'].get('pl', None)
 
     def __repr__(self):
-        node = self.tds.stn.nodes[self.name]['data']
-        return f"<Timepoint {self.name} LB={node['lb']}, UB={node['ub']}>"
+        return f"<Timepoint {self.name} LB={self.lb}, UB={self.ub}>"

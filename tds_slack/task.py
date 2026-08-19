@@ -1,24 +1,23 @@
 import numpy as np
 
-import tds
 from .timepoint import Timepoint
 from tds_slack.slack_search import determine_slot_slack, determine_max_slot_slack, determine_slot_slack_on_resource
 
 class Task:
-    def __init__(self, 
-                 name, 
-                 capability, 
+    def __init__(self,
+                 name,
+                 capability,
                  tds_manager,
-                 locations=[],
+                 locations=None,
                  task_type = "NA"):
         """
         Create a Task and its start/end timepoints.
         """
-        
+
         self.name = name.lower()
         self.capability = capability.lower()
         self.tds = tds_manager
-        self.locations = locations # start and end locations in a list
+        self.locations = locations if locations is not None else [] # start and end locations in a list
 
         # create timepoints through the manager so they are registered there
         self.start = Timepoint(f'{name}_start', self.tds)
@@ -44,7 +43,7 @@ class Task:
 
     def complete_execution(self):
         self.status = "completed"
-        # remove the constraint on its end tpz
+        # remove the constraint on its end tp
         self.end.delete_constraint(self.tds.now, ('all', 'end_after_now'))
         # set the last executed task for the resource timeline to this task
         # TODO: Is there a better way than looping through all resources to find the one that has this task in its timeline? Maybe store a reference to the resource in the task object when it is assigned to a resource.
@@ -78,57 +77,41 @@ class Task:
     def update_saved_flexibility(self, resource=None):
         # if resource is None, recalculate for all capable resources, otherwise just for the given resource
         if resource is None:
+            assigned_resource = self.get_assigned_resource()
             for r in self.capable_resources():
-                prev_flex = self.flexibility.get(r.name, 0)
                 self.flexibility[r.name] = self.get_slot_flexibility_for_resource(r)
-                if r.name == self.get_assigned_resource().name:
+                if r is assigned_resource:
                     self.flexibility[r.name] += self.get_sliding_slack()
-                if self.tds.now is not None:
-                    print(f"Task {self.name} flexibility updated for resource {r.name}: previous={prev_flex}, new={self.flexibility[r.name]}")
         else:
-            prev_flex = self.flexibility.get(resource.name, 0)
             self.flexibility[resource.name] = self.get_slot_flexibility_for_resource(resource)
-            if resource.name == self.get_assigned_resource().name:
+            if resource is self.get_assigned_resource():
                 self.flexibility[resource.name] += self.get_sliding_slack()
-            if self.tds.now is not None:
-                print(f"Task {self.name} flexibility updated for resource {resource.name}: previous={prev_flex}, new={self.flexibility[resource.name]}")
-    
+
 
     def get_slot_flexibility_for_resource(self, resource):
         if not resource.has_capability(self.capability):
             return 0
-        current_resource = self.determine_current_resource()
+        current_resource = self.get_assigned_resource()
         slot_slack = determine_slot_slack_on_resource(self, resource, current_resource)
         return slot_slack
 
-
-    def determine_current_resource(self):
-        # determine which resource this task is currently assigned to, if any
-        for resource in self.tds.resources.values():
-            if self in resource.timeline.tasks:
-                return resource
-        return None
-        
-    
     def get_sliding_slack(self):
         # sliding slack - difference between duration and task ub - lb
         sliding_slack = (self.end.ub - np.abs(self.start.lb)) - self.get_duration() + 1
-        # print(f"Task {self.name} sliding slack calculation: end.ub={self.end.ub}, start.lb={self.start.lb}, duration={self.get_duration()}, sliding_slack={sliding_slack}")
         return sliding_slack
-    
-    
+
+
     def get_max_slot_flexibility(self):
         # find alternate slot with biggest slack
-        current_resource = self.determine_current_resource()
+        current_resource = self.get_assigned_resource()
         max_slot_slack = determine_max_slot_slack(self.tds, self, current_resource)
         return max_slot_slack
-    
+
 
     def get_slot_flexibility(self):
-        # slot slack - sum of task1_slack on all alternate slots for this task 
-        current_resource = self.determine_current_resource()
+        # slot slack - sum of task1_slack on all alternate slots for this task
+        current_resource = self.get_assigned_resource()
         slot_slack = determine_slot_slack(self.tds, self, current_resource)
-        # print(f"Task {self.name} slot flexibility: {slot_slack}")
         return slot_slack
     
     def get_task_flexibility(self):
@@ -192,7 +175,11 @@ class Task:
         if not isinstance(other, Task):
             return False
         return self.name == other.name  # or compare by whatever makes two tasks "the same"
-        
+
+    def __hash__(self):
+        # must stay consistent with __eq__ (name-based) so Task instances can be
+        # used in sets/dict keys without silently becoming unhashable
+        return hash(self.name)
 
     def __repr__(self):
         return f"<Task {self.name} caps={self.capability}>"

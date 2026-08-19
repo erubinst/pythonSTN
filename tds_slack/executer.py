@@ -133,6 +133,7 @@ def send_event(tds, row, save_flexibility=False):
                 f'{resource.name}_presence',
                 prev_task=prev_task,
                 return_affected_timepoint=True,
+                save_flexibility=save_flexibility,
             )
         )
 
@@ -169,9 +170,9 @@ def send_event(tds, row, save_flexibility=False):
             print(f"Affected task {affected_task.name} is not on resource {resource.name} timeline.")
             break
 
-        # if affected task is not scheduled or executing, we can't remove it
-        if affected_task.status not in ["scheduled", "executing"]:
-            print(f"Affected task {affected_task.name} is not scheduled or executing (status: {affected_task.status}); cannot remove it.")
+        # never displace an executing task — only scheduled (not-yet-started) tasks can be removed
+        if affected_task.status != "scheduled":
+            print(f"Affected task {affected_task.name} is not scheduled (status: {affected_task.status}); cannot remove it.")
             break
 
         resource.timeline.remove_task(affected_task, save_flexibility=save_flexibility)

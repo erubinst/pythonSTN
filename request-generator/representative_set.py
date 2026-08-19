@@ -152,8 +152,188 @@ def build_profiles():
     return profiles
 
 
-PROFILES = build_profiles()
+# ─── Grid profiles: workload x pressure ────────────────────────────────
+# The AXES above only ever change one dimension at a time relative to
+# BASELINE, so they can't reveal interaction effects between two axes.
+# GRID_AXES below crosses the tiers of two named axes (e.g. every workload
+# tier x every pressure tier) so both dimensions vary together within a
+# single profile, holding everything else at BASELINE -- same isolation
+# principle as AXES, just applied to a pair instead of a single dimension.
+#
+# grid_workload_medium_pressure_medium is BASELINE in both overridden
+# dimensions (same tier values as workload_medium / pressure_medium /
+# BASELINE itself), so it's a useful sanity-check cell, though note it is
+# an independently-sampled set of scenarios (different profile index ->
+# different seeds), not a byte-for-byte replay of the workload_medium or
+# pressure_medium scenarios.
+GRID_AXES = [("workload", "pressure")]
+
+
+def _axis_profile_name(axis_name, tier_name):
+    """Name of the pre-existing single-axis profile for a given axis/tier,
+    e.g. ("workload", "dense") -> "workload_dense". Every single-axis
+    profile from build_profiles() is named f'{axis_name}_{tier_name}'."""
+    return f"{axis_name}_{tier_name}"
+
+
+def build_grid_profiles():
+    """
+    Cross the tiers of GRID_AXES, but SKIP any cell that's equivalent to a
+    profile we already have, so we never regenerate scenarios we already
+    generated.
+
+    A "medium" tier is defined (see AXES above) to equal BASELINE for that
+    one dimension. So a grid cell with at least one axis at "medium" only
+    differs from BASELINE in (at most) the *other* axis -- which is
+    exactly what a single-axis profile already covers:
+        - both axes "medium"           -> identical to BASELINE itself
+                                           (workload_medium already IS a
+                                           baseline-parameter profile)
+        - axis A "medium", B not       -> identical to axis B's existing
+                                           single-axis profile
+                                           (e.g. workload_medium x
+                                           pressure_tight == pressure_tight)
+    Only cells where BOTH axes are off "medium" are genuinely new
+    combinations, so only those get generated here.
+
+    Returns (grid_profiles, aliases):
+        grid_profiles: the new profiles to actually generate scenarios for
+        aliases: {conceptual_grid_cell_name: existing_profile_name} for
+            every cell that was skipped, so downstream analysis/combining
+            scripts can pull that cell's data from the existing axis
+            folder instead of expecting a grid_* folder that was never
+            (and doesn't need to be) generated.
+    """
+    axes_by_name = dict(AXES)
+    grid_profiles = []
+    aliases = {}
+    for axis_a_name, axis_b_name in GRID_AXES:
+        tiers_a = axes_by_name[axis_a_name]
+        tiers_b = axes_by_name[axis_b_name]
+        for tier_a_name, overrides_a in tiers_a:
+            for tier_b_name, overrides_b in tiers_b:
+                cell_name = f"grid_{axis_a_name}_{tier_a_name}_{axis_b_name}_{tier_b_name}"
+
+                if tier_a_name == "medium" and tier_b_name == "medium":
+                    aliases[cell_name] = _axis_profile_name(axis_a_name, "medium")
+                    continue
+                if tier_a_name == "medium":
+                    aliases[cell_name] = _axis_profile_name(axis_b_name, tier_b_name)
+                    continue
+                if tier_b_name == "medium":
+                    aliases[cell_name] = _axis_profile_name(axis_a_name, tier_a_name)
+                    continue
+
+                profile = dict(BASELINE)
+                profile.update(overrides_a)
+                profile.update(overrides_b)
+                profile["name"] = cell_name
+                grid_profiles.append(profile)
+
+    return grid_profiles, aliases
+
+
+# Grid profiles are appended AFTER the single-axis profiles, so every
+# existing profile keeps the same index in PROFILES (and therefore the
+# same seeds as before) regardless of this addition. Grid profiles get
+# their own fresh indices/seed blocks, so they can never collide with an
+# axis profile's seeds even if you run both sets side by side.
+AXIS_PROFILES = build_profiles()
+GRID_PROFILES, GRID_ALIASES = build_grid_profiles()
+
+
+# ─── Sweep profiles: fine-grained, exact-value axes for reporting ──────
+# AXES above uses 2-4 named tiers per dimension, sampled within a range --
+# good for initial exploration, but coarse for a reporting-grade trend
+# line, and the swept value itself is jittered (e.g. n_resources=(4,7)),
+# so there's no single clean x-axis position per tier.
+#
+# SWEEP_AXES instead defines each level as a single EXACT value (not a
+# range) for the one dimension being swept, so every scenario at a given
+# level has that dimension pinned precisely -- e.g. every "sweep_scale_04"
+# scenario has n_resources exactly 12, not "somewhere between 10 and 14".
+# Every other dimension keeps its normal BASELINE jitter, so scenarios
+# within a level are still diverse in everything *except* the swept
+# variable. This isolates the trend from level-to-level.
+#
+# Each entry is (axis_name, [level values], override_fn) where override_fn
+# maps one level value to a BASELINE-override dict.
+SWEEP_AXES = [
+    (
+        "scale",  # n_resources, fleet size -- log-ish spacing since
+                   # scheduling difficulty rarely scales linearly with size
+        [3, 5, 8, 12, 18, 25],
+        lambda v: dict(n_resources=(v, v)),
+    ),
+    (
+        "disruption",  # future_downtime_count -- linear spacing, this is
+                        # a count, not scale-sensitive
+        [1, 3, 5, 8, 12, 16, 20],
+        lambda v: dict(future_downtime_count=(v, v)),
+    ),
+    (
+        "workload",  # ratio (tasks per resource) -- exact ratio, n_tasks
+                      # is still derived as n_resources * ratio
+        [1, 3, 5, 8, 12, 17, 25],
+        lambda v: dict(ratio=(v, v)),
+    ),
+    (
+        "pressure",  # due_date_slack, parameterized as a multiplier k on
+                      # BASELINE's slack window. Both bounds scale by k
+                      # together (mirrors how the tiered AXES pressure
+                      # tiers move both bounds together, e.g. loose vs.
+                      # tight), rather than always anchoring the low end
+                      # at 0. k=1.0 pins due_date_slack_range to exactly
+                      # (90, 500) -- the outer edge of BASELINE's own
+                      # sampling range on both sides, so it's a clean
+                      # deterministic reference point even though BASELINE
+                      # itself samples within that range rather than
+                      # landing on a fixed value.
+        [2.0, 1.5, 1.0, 0.6, 0.35, 0.15, 0.05],
+        lambda k: dict(due_date_slack=((round(90 * k), round(90 * k)), (round(500 * k), round(500 * k)))),
+    ),
+    (
+        "overlap",  # capability_overlap -- true 0-1 range including both
+                     # extremes. This is the one axis that deliberately
+                     # relaxes the file's hard MIN_OVERLAP=0.4 floor (see
+                     # _relax_overlap_floor in build_scenario_params) --
+                     # every other profile in this file, sweep or
+                     # otherwise, still gets that floor enforced.
+        [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        lambda v: dict(capability_overlap=(v, v), _relax_overlap_floor=True),
+    ),
+]
+
+
+def build_sweep_profiles():
+    """
+    One profile per (axis, level) pair, each an exact-value override of
+    BASELINE on a single dimension. Profile names are index-based
+    (sweep_{axis}_{01, 02, ...}) in level order, so they sort correctly
+    and match the order levels are defined in SWEEP_AXES above. The exact
+    swept value is stashed on the profile dict (as a leading-underscore
+    key so build_scenario_params, which only reads specific named keys,
+    ignores it) and surfaced in the manifest for easy plotting.
+    """
+    profiles = []
+    for axis_name, levels, override_fn in SWEEP_AXES:
+        for level_index, level_value in enumerate(levels, start=1):
+            profile = dict(BASELINE)
+            profile.update(override_fn(level_value))
+            profile["name"] = f"sweep_{axis_name}_{level_index:02d}"
+            profile["_sweep_axis"] = axis_name
+            profile["_sweep_level_index"] = level_index
+            profile["_sweep_level_value"] = level_value
+            profiles.append(profile)
+    return profiles
+
+
+SWEEP_PROFILES = build_sweep_profiles()
+
+PROFILES = AXIS_PROFILES + GRID_PROFILES + SWEEP_PROFILES
 PROFILES_BY_NAME = {p["name"]: p for p in PROFILES}
+GRID_PROFILE_NAMES = [p["name"] for p in GRID_PROFILES]
+SWEEP_PROFILE_NAMES = [p["name"] for p in SWEEP_PROFILES]
 
 
 def _sample_pair(bounds):
@@ -168,7 +348,13 @@ def _sample_pair(bounds):
 def build_scenario_params(profile: dict, rng_seed: int, horizon: int) -> dict:
     """Draw one concrete parameter set from a profile, enforcing the hard
     constraints on capability overlap (>= MIN_OVERLAP) and downtime_prob
-    (always FIXED_DOWNTIME_PROB) regardless of jitter or profile overrides.
+    (always FIXED_DOWNTIME_PROB) regardless of jitter or profile overrides
+    -- UNLESS the profile explicitly opts out via _relax_overlap_floor
+    (only sweep_overlap_* profiles do this; see SWEEP_AXES). That's a
+    deliberate, narrowly-scoped exception for the one study that's
+    specifically about testing overlap below MIN_OVERLAP -- every other
+    profile (AXES, GRID_AXES, and the other SWEEP_AXES) is completely
+    unaffected and still gets the >= 0.4 floor.
     `horizon` is fixed and shared across every scenario in the set."""
     random.seed(rng_seed)
 
@@ -182,7 +368,9 @@ def build_scenario_params(profile: dict, rng_seed: int, horizon: int) -> dict:
     caps_range = (max(1, caps_range[0]), max(caps_range[0] + 1, caps_range[1]))
 
     capability_overlap = round(random.uniform(*profile["capability_overlap"]), 2)
-    capability_overlap = max(capability_overlap, MIN_OVERLAP)  # enforce hard constraint
+    if not profile.get("_relax_overlap_floor", False):
+        capability_overlap = max(capability_overlap, MIN_OVERLAP)  # enforce hard constraint
+    capability_overlap = max(capability_overlap, 0.0)
     capability_overlap = min(capability_overlap, 1.0)
 
     # Hard override: initial resource downtimes are irrelevant to this study,
@@ -225,6 +413,13 @@ def main():
                      help="Name of a profile to generate (e.g. workload_dense). "
                           "Repeatable to select several. Omit to generate ALL profiles. "
                           "Use --list-profiles to see valid names.")
+    ap.add_argument("--profile-group", type=str, default=None,
+                     choices=["axes", "grid", "sweep"],
+                     help="Shortcut to select a whole group of profiles at once: "
+                          "'axes' = all single-axis sweep profiles (the original "
+                          "behavior), 'grid' = all workload x pressure grid cells, "
+                          "'sweep' = all fine-grained exact-value reporting sweeps. "
+                          "Combines with --profile if both are given.")
     ap.add_argument("--list-profiles", action="store_true",
                      help="Print available profile names and exit")
     ap.add_argument("--output-dir", type=str, default="./slack_scenarios",
@@ -238,16 +433,38 @@ def main():
     args = ap.parse_args()
 
     if args.list_profiles:
-        for name in PROFILES_BY_NAME:
-            print(name)
+        print("Axis sweep profiles:")
+        for p in AXIS_PROFILES:
+            print(f"  {p['name']}")
+        print("Grid profiles (workload x pressure) -- newly generated:")
+        for p in GRID_PROFILES:
+            print(f"  {p['name']}")
+        print("Grid profiles (workload x pressure) -- skipped, already covered by:")
+        for cell_name, alias in GRID_ALIASES.items():
+            print(f"  {cell_name}  ->  {alias}")
+        print("Sweep profiles (fine-grained, exact-value):")
+        for p in SWEEP_PROFILES:
+            print(f"  {p['name']}  ({p['_sweep_axis']}={p['_sweep_level_value']})")
         return
 
-    if args.profile:
-        unknown = [name for name in args.profile if name not in PROFILES_BY_NAME]
+    selected_names = list(args.profile) if args.profile else []
+    if args.profile_group == "axes":
+        selected_names += [p["name"] for p in AXIS_PROFILES]
+    elif args.profile_group == "grid":
+        selected_names += GRID_PROFILE_NAMES
+    elif args.profile_group == "sweep":
+        selected_names += SWEEP_PROFILE_NAMES
+
+    if selected_names:
+        # de-dupe while preserving order, in case --profile and
+        # --profile-group overlap
+        seen = set()
+        selected_names = [n for n in selected_names if not (n in seen or seen.add(n))]
+        unknown = [name for name in selected_names if name not in PROFILES_BY_NAME]
         if unknown:
             valid = ", ".join(PROFILES_BY_NAME)
             raise SystemExit(f"Unknown profile(s): {unknown}. Valid options: {valid}")
-        selected_profiles = [PROFILES_BY_NAME[name] for name in args.profile]
+        selected_profiles = [PROFILES_BY_NAME[name] for name in selected_names]
     else:
         selected_profiles = PROFILES
 
@@ -278,9 +495,11 @@ def main():
             params = build_scenario_params(profile, seed, args.horizon)
 
             # Hard-constraint sanity checks (fail loudly rather than silently
-            # emit a scenario that violates the spec).
-            assert params["capability_overlap"] >= MIN_OVERLAP - 1e-9, \
-                f"overlap violated: {params}"
+            # emit a scenario that violates the spec). Skipped for profiles
+            # that explicitly opt out of the overlap floor (sweep_overlap_*).
+            if not profile.get("_relax_overlap_floor", False):
+                assert params["capability_overlap"] >= MIN_OVERLAP - 1e-9, \
+                    f"overlap violated: {params}"
             assert params["downtime_prob"] == FIXED_DOWNTIME_PROB, \
                 f"downtime_prob override violated: {params}"
 
@@ -305,6 +524,14 @@ def main():
                 downtime_prob=params["downtime_prob"],
                 future_downtime_count_requested=params["future_downtime_count"],
                 future_downtime_count_actual=len(future_downtimes),
+                due_date_slack_range=params["due_date_slack_range"],
+                # Present only for sweep_* profiles -- the exact value this
+                # scenario's swept dimension was pinned to, so downstream
+                # analysis can plot against it directly without having to
+                # re-derive it from the profile name.
+                sweep_axis=profile.get("_sweep_axis"),
+                sweep_level_index=profile.get("_sweep_level_index"),
+                sweep_level_value=profile.get("_sweep_level_value"),
                 paths=dict(request=req_path, travel_matrix=tm_path, future_downtimes=fd_path),
             )
             profile_manifest.append(entry)

@@ -22,16 +22,12 @@ class Resource:
             # we have a now tp so we need to add a constraint on the task start tp to be after now tp
             self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)
         result = self.timeline.insert_task(task, prev_task, generate_travel=generate_travel, return_affected_timepoint=return_affected_timepoint)
-        if save_flexibility:
+        success = result[0] if return_affected_timepoint else result
+        if save_flexibility and success:
             # upon insertion, save entire flexibility dict as the task is newly added
             task.update_saved_flexibility()
-            # all other tasks, update only the flexibility for this resource
-            for t in self.tds.tasks.values():
-                if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
-                    continue
-                if t.name != task.name:
-                    if t.status == "scheduled":
-                        t.update_saved_flexibility(resource=self)
+            # all other tasks capable of this resource, update only the flexibility entry for this resource
+            self.timeline.update_capable_tasks_flexibility(exclude_task=task)
         return result
 
     def remove_task_from_timeline(self, task):

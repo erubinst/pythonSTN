@@ -175,13 +175,6 @@ def initialize_events(event_path):
     return events_df
 
 
-def resolve_minimize(minimize=None):
-    if minimize is not None:
-        return minimize
-    else:
-        return False
-
-
 def initialize_tds(request_path, travel_path, initial_heuristic, minimize):
     with open(request_path, 'r') as f:
         request_dict = json.load(f)
@@ -212,17 +205,34 @@ def all_tasks_completed(tds):
 
 
 
-def _run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=None, max_moves=10):
+def _check_flexibility(tds, label, enabled):
+    """Compare the saved flexibility dicts against a full live recompute and print any drift."""
+    if not enabled:
+        return
+    mismatches = tds.verify_saved_flexibility()
+    if mismatches:
+        print(f"[flexibility check] {label}: {len(mismatches)} MISMATCH(ES) between saved and live values:")
+        for task_name, resource_name, saved_value, live_value in mismatches:
+            print(f"    {task_name}'s entry for {resource_name}: saved={saved_value} live={live_value} (diff={live_value - saved_value})")
+    else:
+        print(f"[flexibility check] {label}: OK (saved == live)")
+
+
+def _run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, max_moves=10, verify_flexibility=False):
     all_dropped_tasks = deque()
 
-    initial_minimize = resolve_minimize(minimize)
-    swap_minimize = resolve_minimize(minimize)
+    initial_minimize = minimize
+    swap_minimize = minimize
+    verify_initial = verify_flexibility and initial_heuristic == "save_flexibility"
+    verify_swap = verify_flexibility and task_swap_heuristic == "save_flexibility"
 
     # --- Timing: schedule generation ---
     print(f"Generating initial schedule from request {request_path} using heuristic '{initial_heuristic}' (minimize={initial_minimize}) with {max_moves} max moves...")
     schedule_gen_start = time.perf_counter()
     tds = initialize_tds(request_path, travel_path, initial_heuristic, initial_minimize)
     schedule_gen_time = time.perf_counter() - schedule_gen_start
+
+    _check_flexibility(tds, "after initial schedule generation", verify_initial)
 
     tds.create_now_tp()
     event_df = initialize_events(event_path)
@@ -248,6 +258,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
         print("-------------------------------")
         print(f"Updating now timepoint from {np.abs(tds.now.lb)} to {new_time}.")
         tds.update_now_tp(new_time)
+        _check_flexibility(tds, f"after now advanced to {new_time}", verify_swap)
         if all_tasks_completed(tds):
             print(f"All tasks completed at time {np.abs(tds.now.lb)}. Ending simulation.")
             break
@@ -256,10 +267,11 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
         if any(event['type'] == 'disruption event' for event in all_events[1]):
             starting_events = find_starting_events(tds, event_df)
             for index, row in starting_events.iterrows():
-                removed_tasks = send_event(tds, row.to_dict())
+                removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic == "save_flexibility"))
                 if removed_tasks:
                     print(f"Event at {row['start_time']} on {row['resource']} caused the following tasks to be removed from the schedule: {[task.name for task in removed_tasks]}")
                     all_removed_tasks.extend(removed_tasks)
+                    _check_flexibility(tds, f"after removing {[t.name for t in removed_tasks]} at time {new_time}", verify_swap)
                     #print current schedule
             if all_removed_tasks:
                 print(f"Attempting to reschedule removed tasks: {[task.name for task in all_removed_tasks]}")
@@ -271,6 +283,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
                     reschedule_time_total += swap_duration
                     reschedule_call_count += 1
                     reschedule_call_durations.append(swap_duration)
+                    _check_flexibility(tds, f"after task_swap({task.name}) at time {new_time}", verify_swap)
                     # if unsuccessful, add to all_dropped_tasks
                     if not reschedule[0]:
                         all_dropped_tasks.append(task)
@@ -308,7 +321,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
     return tds, all_dropped_tasks, timing_info
 
 
-def run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=None, max_moves=10):
+def run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, max_moves=10, verify_flexibility=False):
     tds, _, timing_info = _run_simulation(
         request_path,
         travel_path,
@@ -317,17 +330,19 @@ def run_simulation(request_path, travel_path, event_path, initial_heuristic="fle
         task_swap_heuristic=task_swap_heuristic,
         minimize=minimize,
         max_moves=max_moves,
+        verify_flexibility=verify_flexibility,
     )
     return tds, timing_info
 
 
-# run_simulation("/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/workload_medium/scenario_073/request.json",
-#                "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/workload_medium/scenario_073/travel_matrix.json",
-#                "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/workload_medium/scenario_073/future_downtimes.json",
-#                initial_heuristic="save_flexibility",
-#                task_swap_heuristic="save_flexibility",
-#                minimize=False,
-#                max_moves=0)
+run_simulation("/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/request.json",
+               "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/travel_matrix.json",
+               "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/future_downtimes.json",
+               initial_heuristic="save_flexibility",
+               task_swap_heuristic="save_flexibility",
+               minimize=False,
+               max_moves=10,
+               verify_flexibility=True)
 
 
 
@@ -337,7 +352,7 @@ def run_generated_scenarios_bulk(
     scenarios_dir=None,
     initial_heuristic="flexibility",
     task_swap_heuristic="flexibility",
-    minimize=None,
+    minimize=False,
     max_moves=10,
 ):
     """
@@ -346,10 +361,9 @@ def run_generated_scenarios_bulk(
     future_downtimes.json) with a single fixed set of heuristic/max_moves
     settings.
 
-    `minimize`, if left as None (the default), is auto-resolved per metric
-    via resolve_minimize()/METRIC_MINIMIZE_DEFAULTS: makespan is minimized,
-    flexibility is maximized. Pass True/False explicitly only to force a
-    direction (e.g. for an unrecognized metric, or a deliberate experiment).
+    `minimize` applies to both the initial schedule generation and the
+    task-swap rescheduling (the optimization direction is the same for
+    both). Defaults to False.
 
     Returns:
         results_df: one row per scenario, with its dropped-task count and
@@ -427,32 +441,60 @@ def run_generated_scenarios_bulk(
 DEFAULT_COMBINATIONS = [
     {"metric": "makespan", "max_moves": 10, "minimize": True},
     {"metric": "makespan", "max_moves": 0, "minimize": True},
-    {"metric": "flexibility", "max_moves": 10, "minimize": False},
-    {"metric": "flexibility", "max_moves": 0, "minimize": False},
+    # {"metric": "flexibility", "max_moves": 10, "minimize": False},
+    # {"metric": "flexibility", "max_moves": 0, "minimize": False},
+    {
+        "initial_metric": "save_flexibility",
+        "task_swap_metric": "flexibility",
+        "minimize": False,
+        "max_moves": 10,
+    },
+    {
+        "initial_metric": "save_flexibility",
+        "task_swap_metric": "flexibility",
+        "minimize": False,
+        "max_moves": 0,
+    }
 ]
 
 
 def _normalize_combination(combination):
     """
-    Accept {'metric': ..., 'max_moves': ..., 'minimize': ...},
+    Accept combinations that specify the initial-schedule-generation
+    objective separately from the task-swap (rescheduling) objective:
+
+        {"initial_metric": ..., "task_swap_metric": ..., "minimize": ...,
+         "max_moves": ...}
+
+    For backward compatibility, the older single-objective form is also
+    accepted and applied to both initialization and task swap:
+    {'metric': ..., 'max_moves': ..., 'minimize': ...},
     (metric, max_moves, minimize), or the shorter (metric, max_moves) /
     {'metric': ..., 'max_moves': ...} without 'minimize'.
 
-    Returns (metric, max_moves, minimize) where minimize is None if the
-    combination didn't specify one -- callers should fall back to their own
-    `minimize` argument or to resolve_minimize()'s per-metric default in
-    that case.
+    `minimize` is a single value shared by both the initial-generation and
+    task-swap objectives.
+
+    Returns (initial_metric, task_swap_metric, max_moves, minimize) where
+    minimize is None if the combination didn't specify one -- callers
+    should fall back to their own `minimize` argument in that case.
     """
     if isinstance(combination, dict):
-        metric = combination["metric"]
         max_moves = combination["max_moves"]
+        if "metric" in combination:
+            initial_metric = task_swap_metric = combination["metric"]
+        else:
+            initial_metric = combination["initial_metric"]
+            task_swap_metric = combination["task_swap_metric"]
         minimize = combination.get("minimize")
     elif len(combination) == 3:
         metric, max_moves, minimize = combination
+        initial_metric = task_swap_metric = metric
     else:
         metric, max_moves = combination
+        initial_metric = task_swap_metric = metric
         minimize = None
-    return metric, max_moves, minimize
+    return initial_metric, task_swap_metric, max_moves, minimize
 
 
 def run_profile_across_combinations(
@@ -480,19 +522,19 @@ def run_profile_across_combinations(
             travel_matrix.json, and future_downtimes.json (i.e. this is the
             same argument you'd pass as `scenarios_dir` to
             run_generated_scenarios_bulk).
-        combinations: list of (metric, max_moves, minimize) combinations to
-            evaluate. Each entry may be a dict
-            {"metric": ..., "max_moves": ..., "minimize": ...} or a 3-tuple
-            (metric, max_moves, minimize); "minimize" may be omitted from
-            either form. Defaults to DEFAULT_COMBINATIONS:
-                (makespan, 10, minimize=True), (makespan, 0, minimize=True),
-                (flexibility, 10, minimize=False), (flexibility, 0, minimize=False)
+        combinations: list of combinations to evaluate, where each combination
+            may specify the initial-schedule-generation objective separately
+            from the task-swap (rescheduling) objective via a dict
+            {"initial_metric": ..., "task_swap_metric": ..., "minimize": ...,
+             "max_moves": ...}. The older single-objective form (applied to
+            both init and task swap) is also accepted:
+            {"metric": ..., "max_moves": ..., "minimize": ...}, a 3-tuple
+            (metric, max_moves, minimize), or (metric, max_moves).
+            Defaults to DEFAULT_COMBINATIONS. `minimize` is a single value
+            shared by both the initial-generation and task-swap objectives.
         minimize: fallback optimization direction used only for combinations
             that don't specify their own "minimize". Leave as None (the
-            default) to let those combinations auto-resolve from their
-            metric instead (makespan -> minimize, flexibility -> maximize)
-            via resolve_minimize(). Pass True/False here only to force a
-            direction for combinations that omit "minimize" -- a
+            default) if every combination specifies its own "minimize"; a
             combination's own "minimize" always takes priority over this.
         output_csv_path: where to write the summary CSV. Defaults to
             "<profile_path>/<profile_path.name>_combination_summary.csv".
@@ -501,13 +543,15 @@ def run_profile_across_combinations(
 
     Returns:
         summary_df: DataFrame with one row per combination, columns:
-            profile, metric, max_moves, minimize, num_scenarios,
-            total_tasks_dropped, total_schedule_gen_time,
-            avg_schedule_gen_time, total_reschedule_time, avg_reschedule_time
+            profile, initial_metric, task_swap_metric, max_moves,
+            minimize, num_scenarios, total_tasks_dropped,
+            total_schedule_gen_time, avg_schedule_gen_time,
+            total_reschedule_time, avg_reschedule_time
         detail_df: DataFrame with one row per (scenario, combination),
-            columns: profile, scenario, metric, max_moves, minimize,
-            dropped_tasks, schedule_generation_time, total_reschedule_time,
-            reschedule_call_count, avg_reschedule_time
+            columns: profile, scenario, initial_metric, task_swap_metric,
+            max_moves, minimize, dropped_tasks, schedule_generation_time,
+            total_reschedule_time, reschedule_call_count,
+            avg_reschedule_time
     """
     profile_path = Path(profile_path)
     if combinations is None:
@@ -526,18 +570,18 @@ def run_profile_across_combinations(
     summary_rows = []
     detail_frames = []
     for combination in combinations:
-        metric, max_moves, combo_minimize = _normalize_combination(combination)
+        initial_metric, task_swap_metric, max_moves, combo_minimize = _normalize_combination(combination)
         effective_minimize = combo_minimize if combo_minimize is not None else minimize
-        resolved_minimize = resolve_minimize(effective_minimize)
 
         print(
-            f"\n=== Profile '{profile_path.name}': metric='{metric}', "
-            f"max_moves={max_moves}, minimize={resolved_minimize} ==="
+            f"\n=== Profile '{profile_path.name}': initial_metric='{initial_metric}', "
+            f"task_swap_metric='{task_swap_metric}', max_moves={max_moves}, "
+            f"minimize={effective_minimize} ==="
         )
         results_df, total_dropped_tasks, total_schedule_gen_time, total_reschedule_time = run_generated_scenarios_bulk(
             scenarios_dir=profile_path,
-            initial_heuristic=metric,
-            task_swap_heuristic=metric,
+            initial_heuristic=initial_metric,
+            task_swap_heuristic=task_swap_metric,
             minimize=effective_minimize,
             max_moves=max_moves,
         )
@@ -548,9 +592,10 @@ def run_profile_across_combinations(
         if not results_df.empty:
             tagged_df = results_df.copy()
             tagged_df.insert(0, "profile", profile_path.name)
-            tagged_df.insert(2, "metric", metric)
-            tagged_df.insert(3, "max_moves", max_moves)
-            tagged_df.insert(4, "minimize", resolved_minimize)
+            tagged_df.insert(2, "initial_metric", initial_metric)
+            tagged_df.insert(3, "task_swap_metric", task_swap_metric)
+            tagged_df.insert(4, "max_moves", max_moves)
+            tagged_df.insert(5, "minimize", effective_minimize)
             tagged_df = tagged_df.rename(columns={"total_reschedule_time": "reschedule_time"})
             detail_frames.append(tagged_df)
 
@@ -558,9 +603,10 @@ def run_profile_across_combinations(
         summary_rows.append(
             {
                 "profile": profile_path.name,
-                "metric": metric,
+                "initial_metric": initial_metric,
+                "task_swap_metric": task_swap_metric,
                 "max_moves": max_moves,
-                "minimize": resolved_minimize,
+                "minimize": effective_minimize,
                 "num_scenarios": num_scenarios,
                 "total_tasks_dropped": total_dropped_tasks,
                 "total_schedule_gen_time": total_schedule_gen_time,
@@ -585,10 +631,10 @@ def run_profile_across_combinations(
 
     return summary_df, detail_df
 
-if __name__ == "__main__":
-    run_profile_across_combinations(
-        profile_path="/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/scale_large",
-    )
+# if __name__ == "__main__":
+#     run_profile_across_combinations(
+#         profile_path="/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/sweep_overlap_06",
+#     )
 
 
 

@@ -4,9 +4,9 @@ wide, per-scenario table so combinations can be compared directly, and pull
 out some summary statistics.
 
 Input CSV columns (as produced by run_profile_across_combinations):
-    profile, scenario, metric, max_moves, minimize, dropped_tasks,
-    schedule_generation_time, reschedule_time, reschedule_call_count,
-    avg_reschedule_time
+    profile, scenario, initial_metric, task_swap_metric, max_moves, minimize,
+    dropped_tasks, schedule_generation_time, reschedule_time,
+    reschedule_call_count, avg_reschedule_time
 
 Usage:
     python compare_scenarios.py path/to/scenario_detail.csv \
@@ -31,16 +31,33 @@ VALUE_COLS = [
 
 def load_detail_csv(path):
     df = pd.read_csv(path)
-    missing = {"profile", "scenario", "metric", "max_moves"} - set(df.columns)
+
+    # Backward compatibility: older detail CSVs had a single "metric"
+    # column applied to both initialization and task swap.
+    if "metric" in df.columns and not {"initial_metric", "task_swap_metric"} <= set(df.columns):
+        df["initial_metric"] = df["metric"]
+        df["task_swap_metric"] = df["metric"]
+
+    missing = {"profile", "scenario", "initial_metric", "task_swap_metric", "max_moves"} - set(df.columns)
     if missing:
         raise ValueError(f"Input CSV is missing expected columns: {missing}")
     return df
 
 
 def add_combo_label(df):
-    """Give each (metric, max_moves) combination a short, readable label."""
+    """
+    Give each (initial_metric, task_swap_metric, max_moves) combination a
+    short, readable label. When the initial and task-swap objectives are
+    the same (the common case), the label is just "<metric>_mm<max_moves>";
+    when they differ, it's "<initial_metric>-<task_swap_metric>_mm<max_moves>".
+    """
     df = df.copy()
-    df["combo"] = df["metric"].astype(str) + "_mm" + df["max_moves"].astype(str)
+    same_metric = df["initial_metric"] == df["task_swap_metric"]
+    metric_label = df["initial_metric"].astype(str).where(
+        same_metric,
+        df["initial_metric"].astype(str) + "-" + df["task_swap_metric"].astype(str),
+    )
+    df["combo"] = metric_label + "_mm" + df["max_moves"].astype(str)
     return df
 
 
