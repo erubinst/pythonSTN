@@ -231,7 +231,7 @@ def schedule_task(tds, task, objective_metric, minimize=True, other_metrics = No
     best_resource = best_slot['resource']
     
     # Schedule the task on the best resource
-    if objective_metric == 'save_flexibility':
+    if objective_metric in ('save_flexibility', 'full_flex'):
         best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True, save_flexibility=True)
     else:
         best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True)

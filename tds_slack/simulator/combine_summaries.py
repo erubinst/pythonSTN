@@ -79,6 +79,30 @@ def _read_sweep_level_value(profile_dir: Path, manifest_filename: str):
     return first.get("sweep_level_value"), first.get("sweep_level_index")
 
 
+def _read_total_task_count(profile_dir: Path, manifest_filename: str):
+    """
+    Total task count across every scenario in this profile (sum of each
+    manifest entry's n_tasks) -- used to turn a raw runtime-dropped count
+    into a rate relative to how many tasks each objective actually started
+    with (total_tasks - total_initial_unscheduled), since objectives that
+    leave fewer tasks unscheduled initially have more tasks exposed to
+    disruption and so aren't fairly compared on raw dropped counts alone.
+
+    Returns None if the manifest is missing, empty, or unreadable.
+    """
+    manifest_path = profile_dir / manifest_filename
+    if not manifest_path.exists():
+        return None
+    try:
+        with open(manifest_path) as f:
+            entries = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not entries:
+        return None
+    return sum(e["n_tasks"] for e in entries)
+
+
 def parse_profile_name(name: str) -> dict:
     """
     Best-effort parse of a profile folder name into metadata columns for
@@ -171,19 +195,20 @@ def _normalize_metric_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def combine_summaries(scenarios_dir: Path, output_path: Path, manifest_filename: str = DEFAULT_MANIFEST_FILENAME) -> pd.DataFrame:
+def combine_summaries(scenarios_dir: Path, output_path: Path, manifest_filename: str = DEFAULT_MANIFEST_FILENAME, suffix: str = None) -> pd.DataFrame:
     scenarios_dir = Path(scenarios_dir)
     if not scenarios_dir.is_dir():
         raise SystemExit(f"Scenarios directory not found: {scenarios_dir}")
 
     profile_dirs = sorted(p for p in scenarios_dir.iterdir() if p.is_dir())
+    csv_name_for = (lambda name: f"{name}_{suffix}_summary.csv") if suffix else (lambda name: f"{name}_combination_summary.csv")
 
     frames = []
     raw_by_name = {}  # profile_name -> raw (unmodified) df, for alias lookups
     missing = []
     sweep_missing_value = []
     for profile_dir in profile_dirs:
-        csv_path = profile_dir / f"{profile_dir.name}_combination_summary.csv"
+        csv_path = profile_dir / csv_name_for(profile_dir.name)
         if not csv_path.exists():
             missing.append(profile_dir.name)
             continue
@@ -208,10 +233,13 @@ def combine_summaries(scenarios_dir: Path, output_path: Path, manifest_filename:
                 if level_index_from_manifest is not None:
                     meta["sweep_level_index"] = level_index_from_manifest
 
+        meta["total_tasks"] = _read_total_task_count(profile_dir, manifest_filename)
+
         frames.append(_add_metadata_columns(df, meta))
 
     if missing:
-        print(f"Skipped {len(missing)} folder(s) with no/empty combination_summary.csv:")
+        expected_name = csv_name_for("<profile>")
+        print(f"Skipped {len(missing)} folder(s) with no/empty '{expected_name}':")
         for name in missing:
             print(f"  - {name}")
 
@@ -256,6 +284,7 @@ def combine_summaries(scenarios_dir: Path, output_path: Path, manifest_filename:
                 sweep_axis=None,
                 sweep_level_index=None,
                 sweep_level_value=None,
+                total_tasks=_read_total_task_count(scenarios_dir / alias, manifest_filename),
             )
             frames.append(_add_metadata_columns(raw_by_name[alias], meta))
             alias_rows_added += 1
@@ -300,12 +329,20 @@ def main():
         default=DEFAULT_MANIFEST_FILENAME,
         help=f"Per-profile manifest filename to read sweep_level_value from (default: {DEFAULT_MANIFEST_FILENAME})",
     )
+    ap.add_argument(
+        "--suffix",
+        type=str,
+        default=None,
+        help="Read '<profile>_<suffix>_summary.csv' (as written by run_comparison.py --output-suffix) "
+             "instead of the canonical '<profile>_combination_summary.csv'",
+    )
     args = ap.parse_args()
 
     scenarios_dir = Path(args.scenarios_dir)
-    output_path = Path(args.output) if args.output else scenarios_dir / "combined_combination_summary.csv"
+    default_output_name = f"combined_{args.suffix}_summary.csv" if args.suffix else "combined_combination_summary.csv"
+    output_path = Path(args.output) if args.output else scenarios_dir / default_output_name
 
-    combine_summaries(scenarios_dir, output_path, manifest_filename=args.manifest_filename)
+    combine_summaries(scenarios_dir, output_path, manifest_filename=args.manifest_filename, suffix=args.suffix)
 
 
 if __name__ == "__main__":

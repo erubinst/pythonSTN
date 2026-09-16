@@ -50,15 +50,16 @@ def _score_conflict_set(candidate_set, retraction_metric):
     Higher score = prefer to retract this set. --> TODO: how does this work with multiple tasks in the conflict set?
  
     retraction_metric controls what we sum across the set:
-        'flexibility' / 'save_flexibility' — sum of slot and slack (tasks with more
-                        alternatives are cheaper to displace; default resilience
-                        heuristic). Candidate sets here are always transiently
-                        retracted and undone, so scoring always uses the live
-                        recompute even under the save_flexibility objective —
-                        there's nothing to persist for a placement that never commits.
+        'flexibility' / 'save_flexibility' / 'full_flex' — sum of slot and slack
+                        (tasks with more alternatives are cheaper to displace;
+                        default resilience heuristic). Candidate sets here are
+                        always transiently retracted and undone, so scoring
+                        always uses the live recompute even under the
+                        save_flexibility/full_flex objectives — there's nothing
+                        to persist for a placement that never commits.
         <placeholder> — add further metric branches here as needed
     """
-    if retraction_metric in ('flexibility', 'save_flexibility'):
+    if retraction_metric in ('flexibility', 'save_flexibility', 'full_flex'):
         min_flex = min(task.get_task_flexibility() for task in candidate_set)
         return (min_flex, -len(candidate_set))  # higher min_flex wins; fewer tasks breaks tie
     if retraction_metric == 'makespan':
@@ -174,7 +175,7 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
             slot = _best_slot(feasible_slots, metric, minimize)
             resource  = slot['resource']
             prior_task = slot['task1_prior_task']
-            insert_undo = resource.timeline.try_slot(current_task, prior_task, save_flexibility=(metric == 'save_flexibility'))
+            insert_undo = resource.timeline.try_slot(current_task, prior_task, save_flexibility=(metric in ('save_flexibility', 'full_flex')))
             main_undo.extend(insert_undo)
             committed_moves.append((current_task, resource, prior_task))
             print(f'Successfully inserted {current_task.name} at {np.abs(current_task.start.lb)} with no retractions on {resource.name}.')
@@ -205,7 +206,7 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
  
         print(f'Best conflict set to retract for {current_task.name}: {[t.name for t in best_conflict_set]}')
         for t in best_conflict_set:
-            retract_undo = _retract_task(t, tds, save_flexibility=(metric == 'save_flexibility'))
+            retract_undo = _retract_task(t, tds, save_flexibility=(metric in ('save_flexibility', 'full_flex')))
             main_undo.extend(retract_undo)
             protected.append(t)
             retracted_queue.append(t)
@@ -224,7 +225,7 @@ def task_swap(displaced_task, tds, metric='flexibility', minimize=False, retract
         prior_task = slot['task1_prior_task']
 
         print(f'Inserting {current_task.name} into slot after {prior_task.name if prior_task else "start"} on resource {resource.name} after retracting conflict set.')
-        insert_undo = resource.timeline.try_slot(current_task, prior_task, save_flexibility=(metric == 'save_flexibility'))
+        insert_undo = resource.timeline.try_slot(current_task, prior_task, save_flexibility=(metric in ('save_flexibility', 'full_flex')))
         main_undo.extend(insert_undo)
         committed_moves.append((current_task, resource, prior_task))
         num_moves += 1

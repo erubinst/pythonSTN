@@ -73,12 +73,12 @@ BASELINE = dict(
     ratio=(6, 10),                      # n_tasks = n_resources * ratio
     n_locations=(3, 6),
     caps_range=((1, 3), (2, 5)),
-    capability_overlap=(0.6, 0.8),
+    capability_overlap=(0.4, 0.8),
     downtime_prob=(FIXED_DOWNTIME_PROB, FIXED_DOWNTIME_PROB),
-    due_date_slack=((0, 90), (0, 500)),
+    due_date_slack=((0, 158), (0, 875)),
     travel=((5, 30), (10, 60)),
     task_duration=((15, 60), (30, 180)),
-    future_downtime_count=(3, 5),
+    future_downtime_count=(5, 8),
 )
 
 # Each axis is (axis_name, [(tier_name, overrides), ...]).
@@ -262,19 +262,19 @@ SWEEP_AXES = [
     (
         "scale",  # n_resources, fleet size -- log-ish spacing since
                    # scheduling difficulty rarely scales linearly with size
-        [3, 5, 8, 12, 18, 25],
+        [3, 5, 8, 12, 18, 25, 34, 45, 58],
         lambda v: dict(n_resources=(v, v)),
     ),
     (
         "disruption",  # future_downtime_count -- linear spacing, this is
                         # a count, not scale-sensitive
-        [1, 3, 5, 8, 12, 16, 20],
+        [1, 3, 5, 8, 12, 16, 20, 30, 50],
         lambda v: dict(future_downtime_count=(v, v)),
     ),
     (
         "workload",  # ratio (tasks per resource) -- exact ratio, n_tasks
                       # is still derived as n_resources * ratio
-        [1, 3, 5, 8, 12, 17, 25],
+        [1, 3, 5, 8, 12, 17, 25, 35, 50],
         lambda v: dict(ratio=(v, v)),
     ),
     (
@@ -330,7 +330,21 @@ def build_sweep_profiles():
 
 SWEEP_PROFILES = build_sweep_profiles()
 
-PROFILES = AXIS_PROFILES + GRID_PROFILES + SWEEP_PROFILES
+
+# ─── Baseline-only profile ──────────────────────────────────────────────
+# Every profile above is BASELINE plus some override -- there was previously no
+# way to generate a scenario set that's just BASELINE itself, unmodified. This
+# is that profile, useful as the reference point for comparing rescheduling
+# approaches (task_swap vs. full-schedule-regeneration, different objective
+# metrics, etc.) without any axis confounding the comparison.
+BASELINE_PROFILE = dict(BASELINE)
+BASELINE_PROFILE["name"] = "baseline"
+
+# Appended at the END of PROFILES (not inserted anywhere else) so every
+# existing profile keeps the exact same index -- and therefore the exact same
+# seeds -- regardless of this addition. Same reasoning as GRID_PROFILES/
+# SWEEP_PROFILES above.
+PROFILES = AXIS_PROFILES + GRID_PROFILES + SWEEP_PROFILES + [BASELINE_PROFILE]
 PROFILES_BY_NAME = {p["name"]: p for p in PROFILES}
 GRID_PROFILE_NAMES = [p["name"] for p in GRID_PROFILES]
 SWEEP_PROFILE_NAMES = [p["name"] for p in SWEEP_PROFILES]
@@ -445,6 +459,8 @@ def main():
         print("Sweep profiles (fine-grained, exact-value):")
         for p in SWEEP_PROFILES:
             print(f"  {p['name']}  ({p['_sweep_axis']}={p['_sweep_level_value']})")
+        print("Baseline-only profile (BASELINE, unmodified):")
+        print(f"  {BASELINE_PROFILE['name']}")
         return
 
     selected_names = list(args.profile) if args.profile else []

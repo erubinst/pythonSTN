@@ -93,14 +93,18 @@ class Timeline:
         """
         Refresh the flexibility[self.resource.name] entry for every scheduled task
         capable of this resource (except exclude_task, which manages its own dict
-        separately, e.g. the task just inserted/removed).
+        separately, e.g. the task just inserted/removed). Also covers 'unscheduled'
+        tasks when tds.include_unscheduled_in_flexibility is set (full_flex mode) --
+        a task not yet on any timeline can still have its available slots on this
+        resource change as a result of this resource's timeline being edited.
         """
+        allowed_statuses = ("scheduled", "unscheduled") if self.tds.include_unscheduled_in_flexibility else ("scheduled",)
         for t in self.tds.tasks.values():
             if t is exclude_task:
                 continue
             if t.name.endswith('_header') or t.name.endswith('_footer') or 'downtime' in t.name:
                 continue
-            if t.status != "scheduled":
+            if t.status not in allowed_statuses:
                 continue
             if not self.resource.has_capability(t.capability):
                 continue
@@ -113,9 +117,10 @@ class Timeline:
                 ))
 
 
-    def remove_task(self, task, generate_undo=False, save_flexibility=False):
-        if task.status != "scheduled":
-            raise ValueError(f"Cannot remove {task.name}: only scheduled tasks can be removed (status is '{task.status}').")
+    def remove_task(self, task, generate_undo=False, save_flexibility=False, allow_executing=False):
+        allowed_statuses = ("scheduled", "executing") if allow_executing else ("scheduled",)
+        if task.status not in allowed_statuses:
+            raise ValueError(f"Cannot remove {task.name}: status is '{task.status}', expected one of {allowed_statuses}.")
         task_idx = self.tasks.index(task)
         prev_task = self.tasks[task_idx - 1] if task_idx - 1 >= 0 else None
         next_task = self.tasks[task_idx + 1] if task_idx + 1 < len(self.tasks) else None
@@ -154,19 +159,49 @@ class Timeline:
         if generate_undo:
             undo_stack.append((f'restoring {task.name} to {self.resource.name} timeline list', lambda: self.tasks.insert(task_idx, task)))
         # remove constraint to now point if now point exists, then mark the task unscheduled
-        # (task.status is guaranteed 'scheduled' here — anything else is rejected above)
+        # scheduled tasks carry start_after_now; executing tasks have that swapped out for
+        # end_after_now by Task.begin_execution, so which constraint to tear down depends on
+        # which status this task actually came in with.
+        was_executing = task.status == "executing"
         if self.tds.now is not None:
-            self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
-            if generate_undo:
-                undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
+            if was_executing:
+                self.tds.now.delete_constraint(task.end, ('all', 'end_after_now'))
+                if generate_undo:
+                    undo_stack.append((f'restoring end_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.end, ('all', 'end_after_now'), min_gap=0, max_gap=np.inf)))
+            else:
+                self.tds.now.delete_constraint(task.start, ('all', 'start_after_now'))
+                if generate_undo:
+                    undo_stack.append((f'restoring start_after_now constraint for {task.name}', lambda: self.tds.now.add_constraint(task.start, ('all', 'start_after_now'), min_gap=0, max_gap=np.inf)))
 
+        prior_status = task.status
         task.status = "unscheduled"
         if generate_undo:
-            undo_stack.append((f'setting {task.name} status back to scheduled', lambda: setattr(task, 'status', 'scheduled')))
+            undo_stack.append((f'restoring {task.name} status to {prior_status}', lambda: setattr(task, 'status', prior_status)))
 
-        # clear the flexibility dictionary for the task since it is no longer scheduled
+        # Under plain save_flexibility, this task is no longer counted once
+        # unscheduled, so clearing its dict is correct. Under full_flex it's
+        # still counted, so its dict must stay populated:
+        #   - normal scheduled removal: only THIS (just-vacated) resource's
+        #     entry actually goes stale. determine_slot_slack_on_resource
+        #     always transiently removes the task from its current assignment
+        #     before searching feasible slots on ANY resource, so every other
+        #     resource's cached entry already reflects this task being
+        #     vacated. This resource's own entry was carrying the
+        #     sliding-slack bonus (now gone, since there's no assigned
+        #     resource anymore) and must be refreshed.
+        #   - preemption from executing: update_capable_tasks_flexibility
+        #     skips 'executing' tasks entirely, so NOTHING refreshed this
+        #     task's dict for however long it was executing -- every entry,
+        #     not just this resource's, may be stale, so it needs a full
+        #     recompute across every capable resource.
         current_flexibility_dict = task.flexibility.copy()
-        task.flexibility = {}
+        if save_flexibility and self.tds.include_unscheduled_in_flexibility:
+            if was_executing:
+                task.update_saved_flexibility()
+            else:
+                task.update_saved_flexibility(resource=self.resource)
+        else:
+            task.flexibility = {}
         if generate_undo:
             undo_stack.append((f'restoring {task.name} flexibility dictionary', lambda: setattr(task, 'flexibility', current_flexibility_dict)))
 
@@ -390,7 +425,10 @@ class Timeline:
 
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
         results = []
-        save_flexibility = 'save_flexibility' in metrics
+        # full_flex reuses save_flexibility's caching machinery -- the only
+        # difference is scope (TDSManager.include_unscheduled_in_flexibility),
+        # which sum_saved_flexibility() itself reads.
+        save_flexibility = any(m in metrics for m in ('save_flexibility', 'full_flex'))
 
         for prior_task, prior_task_idx in self._scan_candidate_slots(new_task, starting_task, prior_slot):
             undo_stack = self.try_slot(new_task, prior_task, save_flexibility=save_flexibility, prior_task_idx=prior_task_idx)
@@ -418,6 +456,8 @@ class Timeline:
                     results[-1]['earliest_completion_time'] = self.tds.sum_completion_time_diff()
                 if 'save_flexibility' in metrics:
                     results[-1]['save_flexibility'] = self.tds.sum_saved_flexibility()
+                if 'full_flex' in metrics:
+                    results[-1]['full_flex'] = self.tds.sum_saved_flexibility()
                 execute_undo_functions(undo_stack)
 
         return results

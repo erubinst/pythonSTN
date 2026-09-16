@@ -3,7 +3,9 @@ from pathlib import Path
 import time
 
 from tds_slack.task_swap import task_swap
-from tds_slack.executer import run_scheduler, send_event
+from tds_slack.executer import run_scheduler, send_event, regenerate_schedule_for_event, regenerate_schedule_for_event_cp, upload_request
+from tds_slack.optimizer_scheduler import generate_initial_schedule_cp
+from ortools.sat.python import cp_model
 import json
 import numpy as np
 import pandas as pd
@@ -175,12 +177,16 @@ def initialize_events(event_path):
     return events_df
 
 
-def initialize_tds(request_path, travel_path, initial_heuristic, minimize):
+def initialize_tds(request_path, travel_path, initial_heuristic, minimize, cp_time_limit=180):
     with open(request_path, 'r') as f:
         request_dict = json.load(f)
     with open(travel_path, 'r') as f:
         travel_matrix = json.load(f)
-    tds = run_scheduler(request_dict, travel_matrix, objective_metric=initial_heuristic, minimize=minimize)
+    if initial_heuristic == "cp_optimal":
+        tds = upload_request(request_dict, travel_matrix, epoch_date=None)
+        tds = generate_initial_schedule_cp(tds, time_limit_seconds=cp_time_limit)
+    else:
+        tds = run_scheduler(request_dict, travel_matrix, objective_metric=initial_heuristic, minimize=minimize)
     # print out the est schedule for debugging
     print("Initial schedule:")
     for resources in tds.resources.values():
@@ -197,8 +203,8 @@ def all_tasks_completed(tds):
     for task in tds.tasks.values():
         if task.name.endswith('_header') or task.name.endswith('_footer'):
             continue
-        # if status is not completed or unscheduled
-        if task.status not in ['completed', 'unscheduled']:
+        # if status is not completed, unscheduled, or aborted (given up on for good)
+        if task.status not in ['completed', 'unscheduled', 'aborted']:
             return False
     return True
 
@@ -218,21 +224,48 @@ def _check_flexibility(tds, label, enabled):
         print(f"[flexibility check] {label}: OK (saved == live)")
 
 
-def _run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, max_moves=10, verify_flexibility=False):
+def _run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, initial_minimize=None, swap_minimize=None, max_moves=10, verify_flexibility=False, reschedule_mode="task_swap", regen_metric="makespan", cp_time_limit=180):
     all_dropped_tasks = deque()
 
-    initial_minimize = minimize
-    swap_minimize = minimize
-    verify_initial = verify_flexibility and initial_heuristic == "save_flexibility"
-    verify_swap = verify_flexibility and task_swap_heuristic == "save_flexibility"
+    # initial_minimize/swap_minimize let the initial-generation and
+    # task-swap objectives use different optimization directions (e.g.
+    # initial_metric='full_flex' minimize=False paired with
+    # task_swap_metric='makespan' minimize=True) -- needed for "mismatched"
+    # initial/reschedule combinations where a single shared `minimize`
+    # can't be correct for both metrics at once. Each falls back to the
+    # shared `minimize` when not given, so every existing matched-metric
+    # call site is unaffected.
+    initial_minimize = initial_minimize if initial_minimize is not None else minimize
+    swap_minimize = swap_minimize if swap_minimize is not None else minimize
+    verify_initial = verify_flexibility and initial_heuristic in ("save_flexibility", "full_flex")
+    verify_swap = verify_flexibility and task_swap_heuristic in ("save_flexibility", "full_flex")
 
     # --- Timing: schedule generation ---
     print(f"Generating initial schedule from request {request_path} using heuristic '{initial_heuristic}' (minimize={initial_minimize}) with {max_moves} max moves...")
     schedule_gen_start = time.perf_counter()
-    tds = initialize_tds(request_path, travel_path, initial_heuristic, initial_minimize)
+    tds = initialize_tds(request_path, travel_path, initial_heuristic, initial_minimize, cp_time_limit=cp_time_limit)
     schedule_gen_time = time.perf_counter() - schedule_gen_start
 
     _check_flexibility(tds, "after initial schedule generation", verify_initial)
+
+    # Tasks that never made it into the initial schedule at all. Tracked
+    # separately from all_dropped_tasks (rather than merged in) so the two
+    # sources -- initial-generation shortfall vs. runtime-rescheduling failure
+    # -- can be compared side by side instead of conflated into one number.
+    initial_unscheduled_tasks = []
+    for task in tds.tasks.values():
+        if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+            continue
+        if task.status == 'unscheduled':
+            print(f"Task {task.name} never made it into the initial schedule.")
+            task.status = 'aborted'
+            initial_unscheduled_tasks.append(task)
+
+    # Initial generation may have set this for initial_heuristic (see
+    # run_scheduler); re-set it here for whichever metric actually drives
+    # runtime rescheduling, since the two can differ.
+    runtime_metric = regen_metric if reschedule_mode == "full_regen" else task_swap_heuristic
+    tds.include_unscheduled_in_flexibility = (runtime_metric == "full_flex")
 
     tds.create_now_tp()
     event_df = initialize_events(event_path)
@@ -258,35 +291,74 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
         print("-------------------------------")
         print(f"Updating now timepoint from {np.abs(tds.now.lb)} to {new_time}.")
         tds.update_now_tp(new_time)
-        _check_flexibility(tds, f"after now advanced to {new_time}", verify_swap)
         if all_tasks_completed(tds):
             print(f"All tasks completed at time {np.abs(tds.now.lb)}. Ending simulation.")
             break
 
         # if all_events contains a disruption type event, we first must process the disruption event
         if any(event['type'] == 'disruption event' for event in all_events[1]):
+            tds.refresh_saved_flexibility_after_now_update()
+            _check_flexibility(tds, f"after refreshing flexibility following now advance to {new_time}", verify_swap)
             starting_events = find_starting_events(tds, event_df)
-            for index, row in starting_events.iterrows():
-                removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic == "save_flexibility"))
-                if removed_tasks:
-                    print(f"Event at {row['start_time']} on {row['resource']} caused the following tasks to be removed from the schedule: {[task.name for task in removed_tasks]}")
-                    all_removed_tasks.extend(removed_tasks)
-                    _check_flexibility(tds, f"after removing {[t.name for t in removed_tasks]} at time {new_time}", verify_swap)
-                    #print current schedule
-            if all_removed_tasks:
-                print(f"Attempting to reschedule removed tasks: {[task.name for task in all_removed_tasks]}")
-                for i in range(len(all_removed_tasks)):
-                    task = all_removed_tasks.pop()
-                    swap_start = time.perf_counter()
-                    reschedule = task_swap(task, tds, metric=task_swap_heuristic, minimize=swap_minimize, retraction_metric=task_swap_heuristic, max_moves=max_moves)
-                    swap_duration = time.perf_counter() - swap_start
-                    reschedule_time_total += swap_duration
+
+            if reschedule_mode == "full_regen":
+                # Once per individual event: wipe + rebuild the entire remaining
+                # schedule from scratch, rather than task_swap's targeted local
+                # repair. See executer.regenerate_schedule_for_event.
+                for index, row in starting_events.iterrows():
+                    regen_start = time.perf_counter()
+                    dropped = regenerate_schedule_for_event(
+                        tds, row.to_dict(), regen_metric=regen_metric, minimize=swap_minimize,
+                        save_flexibility=(regen_metric in ("save_flexibility", "full_flex")),
+                    )
+                    regen_duration = time.perf_counter() - regen_start
+                    reschedule_time_total += regen_duration
                     reschedule_call_count += 1
-                    reschedule_call_durations.append(swap_duration)
-                    _check_flexibility(tds, f"after task_swap({task.name}) at time {new_time}", verify_swap)
-                    # if unsuccessful, add to all_dropped_tasks
-                    if not reschedule[0]:
-                        all_dropped_tasks.append(task)
+                    reschedule_call_durations.append(regen_duration)
+                    _check_flexibility(tds, f"after full regeneration for event at {row['start_time']} on {row['resource']} at time {new_time}", verify_swap)
+                    if dropped:
+                        print(f"Event at {row['start_time']} on {row['resource']} left the following tasks unplaced after full regeneration: {[task.name for task in dropped]}")
+                        all_dropped_tasks.extend(dropped)
+            elif reschedule_mode == "cp_regen":
+                # Same wipe-when-needed structure as full_regen, but the
+                # rebuild is a single CP-SAT solve per event instead of a
+                # greedy per-task loop -- see executer.regenerate_schedule_for_event_cp.
+                for index, row in starting_events.iterrows():
+                    regen_start = time.perf_counter()
+                    dropped = regenerate_schedule_for_event_cp(
+                        tds, row.to_dict(), time_limit_seconds=cp_time_limit,
+                    )
+                    regen_duration = time.perf_counter() - regen_start
+                    reschedule_time_total += regen_duration
+                    reschedule_call_count += 1
+                    reschedule_call_durations.append(regen_duration)
+                    _check_flexibility(tds, f"after CP regeneration for event at {row['start_time']} on {row['resource']} at time {new_time}", verify_swap)
+                    if dropped:
+                        print(f"Event at {row['start_time']} on {row['resource']} left the following tasks unplaced after CP regeneration: {[task.name for task in dropped]}")
+                        all_dropped_tasks.extend(dropped)
+            else:
+                for index, row in starting_events.iterrows():
+                    removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic in ("save_flexibility", "full_flex")))
+                    if removed_tasks:
+                        print(f"Event at {row['start_time']} on {row['resource']} caused the following tasks to be removed from the schedule: {[task.name for task in removed_tasks]}")
+                        all_removed_tasks.extend(removed_tasks)
+                        _check_flexibility(tds, f"after removing {[t.name for t in removed_tasks]} at time {new_time}", verify_swap)
+                        #print current schedule
+                if all_removed_tasks:
+                    print(f"Attempting to reschedule removed tasks: {[task.name for task in all_removed_tasks]}")
+                    for i in range(len(all_removed_tasks)):
+                        task = all_removed_tasks.pop()
+                        swap_start = time.perf_counter()
+                        reschedule = task_swap(task, tds, metric=task_swap_heuristic, minimize=swap_minimize, retraction_metric=task_swap_heuristic, max_moves=max_moves)
+                        swap_duration = time.perf_counter() - swap_start
+                        reschedule_time_total += swap_duration
+                        reschedule_call_count += 1
+                        reschedule_call_durations.append(swap_duration)
+                        _check_flexibility(tds, f"after task_swap({task.name}) at time {new_time}", verify_swap)
+                        # if unsuccessful, add to all_dropped_tasks
+                        if not reschedule[0]:
+                            task.status = 'aborted'
+                            all_dropped_tasks.append(task)
 
         ready_tasks = find_ready_tasks(tds)
         print(f"Ready tasks at time {np.abs(tds.now.lb)}: {[task.name for task in ready_tasks]}")
@@ -305,6 +377,10 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
         print("-------------------------------")
 
     print(f"Final list of dropped tasks: {[task.name for task in all_dropped_tasks]}")
+    print(f"Tasks never scheduled initially: {[task.name for task in initial_unscheduled_tasks]}")
+
+    cp_optimal_count = sum(1 for _, status in tds.cp_solve_log if status == cp_model.OPTIMAL)
+    cp_feasible_count = sum(1 for _, status in tds.cp_solve_log if status == cp_model.FEASIBLE)
 
     timing_info = {
         "schedule_generation_time": schedule_gen_time,
@@ -312,16 +388,23 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
         "reschedule_call_count": reschedule_call_count,
         "avg_reschedule_time": (reschedule_time_total / reschedule_call_count) if reschedule_call_count else 0.0,
         "reschedule_call_durations": reschedule_call_durations,
+        "initial_unscheduled_count": len(initial_unscheduled_tasks),
+        "cp_optimal_count": cp_optimal_count,
+        "cp_feasible_count": cp_feasible_count,
     }
+    if tds.cp_solve_log:
+        print(f"CP-SAT solves: {cp_optimal_count} OPTIMAL, {cp_feasible_count} FEASIBLE (time-limited) "
+              f"of {len(tds.cp_solve_log)} total.")
     print(f"Schedule generation time: {schedule_gen_time:.4f}s")
     print(f"Total reschedule time: {reschedule_time_total:.4f}s over {reschedule_call_count} call(s) "
           f"(avg {timing_info['avg_reschedule_time']:.4f}s/call)")
+    print(f"Initial-unscheduled tasks: {timing_info['initial_unscheduled_count']}")
 
 
     return tds, all_dropped_tasks, timing_info
 
 
-def run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, max_moves=10, verify_flexibility=False):
+def run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, max_moves=10, verify_flexibility=False, reschedule_mode="task_swap", regen_metric="makespan", cp_time_limit=180):
     tds, _, timing_info = _run_simulation(
         request_path,
         travel_path,
@@ -331,18 +414,21 @@ def run_simulation(request_path, travel_path, event_path, initial_heuristic="fle
         minimize=minimize,
         max_moves=max_moves,
         verify_flexibility=verify_flexibility,
+        reschedule_mode=reschedule_mode,
+        regen_metric=regen_metric,
+        cp_time_limit=cp_time_limit,
     )
     return tds, timing_info
 
 
-run_simulation("/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/request.json",
-               "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/travel_matrix.json",
-               "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/future_downtimes.json",
-               initial_heuristic="save_flexibility",
-               task_swap_heuristic="save_flexibility",
-               minimize=False,
-               max_moves=10,
-               verify_flexibility=True)
+# run_simulation("/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/request.json",
+#                "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/travel_matrix.json",
+#                "/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/disruption_extreme/scenario_027/future_downtimes.json",
+#                initial_heuristic="save_flexibility",
+#                task_swap_heuristic="save_flexibility",
+#                minimize=False,
+#                max_moves=10,
+#                verify_flexibility=True)
 
 
 
@@ -353,7 +439,12 @@ def run_generated_scenarios_bulk(
     initial_heuristic="flexibility",
     task_swap_heuristic="flexibility",
     minimize=False,
+    initial_minimize=None,
+    swap_minimize=None,
     max_moves=10,
+    reschedule_mode="task_swap",
+    regen_metric="makespan",
+    cp_time_limit=180,
 ):
     """
     Run every scenario subfolder found directly under `scenarios_dir` (each
@@ -384,8 +475,11 @@ def run_generated_scenarios_bulk(
     scenario_dirs = sorted(path for path in scenarios_dir.iterdir() if path.is_dir())
     results = []
     total_dropped_tasks = 0
+    total_initial_unscheduled = 0
     total_schedule_gen_time = 0.0
     total_reschedule_time = 0.0
+    total_cp_optimal = 0
+    total_cp_feasible = 0
 
     for scenario_dir in scenario_dirs:
         request_path = scenario_dir / "request.json"
@@ -404,21 +498,32 @@ def run_generated_scenarios_bulk(
             initial_heuristic=initial_heuristic,
             task_swap_heuristic=task_swap_heuristic,
             minimize=minimize,
+            initial_minimize=initial_minimize,
+            swap_minimize=swap_minimize,
             max_moves=max_moves,
+            reschedule_mode=reschedule_mode,
+            regen_metric=regen_metric,
+            cp_time_limit=cp_time_limit,
         )
 
         dropped_count = len(dropped_tasks)
         total_dropped_tasks += dropped_count
+        total_initial_unscheduled += timing_info["initial_unscheduled_count"]
         total_schedule_gen_time += timing_info["schedule_generation_time"]
         total_reschedule_time += timing_info["total_reschedule_time"]
+        total_cp_optimal += timing_info["cp_optimal_count"]
+        total_cp_feasible += timing_info["cp_feasible_count"]
         results.append(
             {
                 "scenario": scenario_dir.name,
                 "dropped_tasks": dropped_count,
+                "initial_unscheduled": timing_info["initial_unscheduled_count"],
                 "schedule_generation_time": timing_info["schedule_generation_time"],
                 "total_reschedule_time": timing_info["total_reschedule_time"],
                 "reschedule_call_count": timing_info["reschedule_call_count"],
                 "avg_reschedule_time": timing_info["avg_reschedule_time"],
+                "cp_optimal_count": timing_info["cp_optimal_count"],
+                "cp_feasible_count": timing_info["cp_feasible_count"],
             }
         )
 
@@ -428,8 +533,11 @@ def run_generated_scenarios_bulk(
         print(results_df.to_string(index=False))
 
     print(f"\nTotal tasks dropped across all scenarios: {total_dropped_tasks}")
+    print(f"Total tasks never scheduled initially across all scenarios: {total_initial_unscheduled}")
     print(f"Total schedule generation time across all scenarios: {total_schedule_gen_time:.4f}s")
     print(f"Total reschedule time across all scenarios: {total_reschedule_time:.4f}s")
+    if total_cp_optimal or total_cp_feasible:
+        print(f"CP-SAT solves across all scenarios: {total_cp_optimal} OPTIMAL, {total_cp_feasible} FEASIBLE (time-limited).")
 
     return results_df, total_dropped_tasks, total_schedule_gen_time, total_reschedule_time
 
@@ -473,28 +581,60 @@ def _normalize_combination(combination):
     {'metric': ..., 'max_moves': ...} without 'minimize'.
 
     `minimize` is a single value shared by both the initial-generation and
-    task-swap objectives.
+    task-swap objectives, unless the dict form's "initial_minimize" and/or
+    "swap_minimize" are given -- those override "minimize" per-role, for
+    "mismatched" combinations where initial_metric and task_swap_metric need
+    opposite optimization directions (e.g. initial_metric='full_flex'
+    minimize=False paired with task_swap_metric='makespan' minimize=True).
 
-    Returns (initial_metric, task_swap_metric, max_moves, minimize) where
-    minimize is None if the combination didn't specify one -- callers
-    should fall back to their own `minimize` argument in that case.
+    Also accepts an opt-in "reschedule_mode": "full_regen" (default is
+    "task_swap") to compare against full-schedule-regeneration instead of
+    task_swap's targeted local repair, with its own "regen_metric" (default
+    "makespan") in place of task_swap_metric.
+
+    Also accepts an opt-in "cp_time_limit" (default None, meaning "use the
+    caller's own default") -- only meaningful when initial_metric is
+    "cp_optimal", the CP-SAT time budget (seconds) for generating that
+    scenario's initial schedule.
+
+    Returns (initial_metric, task_swap_metric, max_moves, minimize,
+    reschedule_mode, regen_metric, cp_time_limit, initial_minimize,
+    swap_minimize) where minimize/cp_time_limit/initial_minimize/
+    swap_minimize are None if the combination didn't specify one -- callers
+    should fall back to their own defaults in that case.
     """
     if isinstance(combination, dict):
-        max_moves = combination["max_moves"]
+        reschedule_mode = combination.get("reschedule_mode", "task_swap")
+        regen_metric = combination.get("regen_metric", "makespan")
+        max_moves = combination.get("max_moves", 0)
         if "metric" in combination:
             initial_metric = task_swap_metric = combination["metric"]
         else:
             initial_metric = combination["initial_metric"]
-            task_swap_metric = combination["task_swap_metric"]
+            task_swap_metric = combination.get("task_swap_metric", regen_metric)
         minimize = combination.get("minimize")
+        cp_time_limit = combination.get("cp_time_limit")
+        initial_minimize = combination.get("initial_minimize")
+        swap_minimize = combination.get("swap_minimize")
     elif len(combination) == 3:
         metric, max_moves, minimize = combination
         initial_metric = task_swap_metric = metric
+        reschedule_mode = "task_swap"
+        regen_metric = "makespan"
+        cp_time_limit = None
+        initial_minimize = None
+        swap_minimize = None
     else:
         metric, max_moves = combination
         initial_metric = task_swap_metric = metric
         minimize = None
-    return initial_metric, task_swap_metric, max_moves, minimize
+        reschedule_mode = "task_swap"
+        regen_metric = "makespan"
+        cp_time_limit = None
+        initial_minimize = None
+        swap_minimize = None
+    return (initial_metric, task_swap_metric, max_moves, minimize, reschedule_mode,
+            regen_metric, cp_time_limit, initial_minimize, swap_minimize)
 
 
 def run_profile_across_combinations(
@@ -503,6 +643,7 @@ def run_profile_across_combinations(
     minimize=None,
     output_csv_path=None,
     detail_csv_path=None,
+    cp_time_limit=180,
 ):
     """
     Run every scenario in a single profile folder (as produced by
@@ -570,20 +711,35 @@ def run_profile_across_combinations(
     summary_rows = []
     detail_frames = []
     for combination in combinations:
-        initial_metric, task_swap_metric, max_moves, combo_minimize = _normalize_combination(combination)
+        (initial_metric, task_swap_metric, max_moves, combo_minimize, reschedule_mode, regen_metric,
+         combo_cp_time_limit, combo_initial_minimize, combo_swap_minimize) = _normalize_combination(combination)
         effective_minimize = combo_minimize if combo_minimize is not None else minimize
+        effective_cp_time_limit = combo_cp_time_limit if combo_cp_time_limit is not None else cp_time_limit
+        effective_initial_minimize = combo_initial_minimize if combo_initial_minimize is not None else effective_minimize
+        effective_swap_minimize = combo_swap_minimize if combo_swap_minimize is not None else effective_minimize
 
-        print(
-            f"\n=== Profile '{profile_path.name}': initial_metric='{initial_metric}', "
-            f"task_swap_metric='{task_swap_metric}', max_moves={max_moves}, "
-            f"minimize={effective_minimize} ==="
-        )
+        if reschedule_mode == "full_regen":
+            print(
+                f"\n=== Profile '{profile_path.name}': initial_metric='{initial_metric}', "
+                f"reschedule_mode='full_regen', regen_metric='{regen_metric}', "
+                f"minimize={effective_minimize} ==="
+            )
+        else:
+            print(
+                f"\n=== Profile '{profile_path.name}': initial_metric='{initial_metric}' (minimize={effective_initial_minimize}), "
+                f"task_swap_metric='{task_swap_metric}' (minimize={effective_swap_minimize}), max_moves={max_moves} ==="
+            )
         results_df, total_dropped_tasks, total_schedule_gen_time, total_reschedule_time = run_generated_scenarios_bulk(
             scenarios_dir=profile_path,
             initial_heuristic=initial_metric,
             task_swap_heuristic=task_swap_metric,
             minimize=effective_minimize,
+            initial_minimize=effective_initial_minimize,
+            swap_minimize=effective_swap_minimize,
             max_moves=max_moves,
+            reschedule_mode=reschedule_mode,
+            regen_metric=regen_metric,
+            cp_time_limit=effective_cp_time_limit,
         )
 
         # Tag this combination's per-scenario rows and keep them (rather
@@ -596,10 +752,17 @@ def run_profile_across_combinations(
             tagged_df.insert(3, "task_swap_metric", task_swap_metric)
             tagged_df.insert(4, "max_moves", max_moves)
             tagged_df.insert(5, "minimize", effective_minimize)
+            tagged_df.insert(6, "reschedule_mode", reschedule_mode)
+            tagged_df.insert(7, "regen_metric", regen_metric)
+            tagged_df.insert(8, "initial_minimize", effective_initial_minimize)
+            tagged_df.insert(9, "swap_minimize", effective_swap_minimize)
             tagged_df = tagged_df.rename(columns={"total_reschedule_time": "reschedule_time"})
             detail_frames.append(tagged_df)
 
         num_scenarios = len(results_df)
+        total_initial_unscheduled = int(results_df["initial_unscheduled"].sum()) if not results_df.empty else 0
+        total_cp_optimal = int(results_df["cp_optimal_count"].sum()) if not results_df.empty else 0
+        total_cp_feasible = int(results_df["cp_feasible_count"].sum()) if not results_df.empty else 0
         summary_rows.append(
             {
                 "profile": profile_path.name,
@@ -607,12 +770,20 @@ def run_profile_across_combinations(
                 "task_swap_metric": task_swap_metric,
                 "max_moves": max_moves,
                 "minimize": effective_minimize,
+                "initial_minimize": effective_initial_minimize,
+                "swap_minimize": effective_swap_minimize,
+                "reschedule_mode": reschedule_mode,
+                "regen_metric": regen_metric,
+                "cp_time_limit": effective_cp_time_limit,
                 "num_scenarios": num_scenarios,
                 "total_tasks_dropped": total_dropped_tasks,
+                "total_initial_unscheduled": total_initial_unscheduled,
                 "total_schedule_gen_time": total_schedule_gen_time,
                 "avg_schedule_gen_time": (total_schedule_gen_time / num_scenarios) if num_scenarios else 0.0,
                 "total_reschedule_time": total_reschedule_time,
                 "avg_reschedule_time": (total_reschedule_time / num_scenarios) if num_scenarios else 0.0,
+                "total_cp_optimal": total_cp_optimal,
+                "total_cp_feasible": total_cp_feasible,
             }
         )
 
@@ -631,10 +802,10 @@ def run_profile_across_combinations(
 
     return summary_df, detail_df
 
-# if __name__ == "__main__":
-#     run_profile_across_combinations(
-#         profile_path="/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/sweep_overlap_06",
-#     )
+if __name__ == "__main__":
+    run_profile_across_combinations(
+        profile_path="/Users/erubinst/ICLL/pythonSTN/tds_slack/simulator/generated_scenarios/sweep_workload_04",
+    )
 
 
 

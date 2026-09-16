@@ -11,6 +11,16 @@ class TDSManager:
         self.cz = Timepoint('zero', self, add_to_stn=False)
         self.travel_matrix = travel_matrix
         self.now = None  # will be set when simulation starts
+        # Set True while the active objective is 'full_flex', so the flexibility
+        # cache (task.flexibility) and its aggregates also cover not-yet-scheduled
+        # tasks, not just ones already on a timeline. False gives today's
+        # save_flexibility behavior (scheduled tasks only). Toggled by the
+        # simulation driver, not by anything in this class.
+        self.include_unscheduled_in_flexibility = False
+        # Populated by optimizer_scheduler.py's CP-SAT entry points: one
+        # (call_kind, cp_model status) tuple per solve, so callers can report
+        # whether each one reached proven OPTIMAL or only timed-out FEASIBLE.
+        self.cp_solve_log = []
 
 
     def print_now_edges(self):
@@ -35,7 +45,6 @@ class TDSManager:
         """Update the now timepoint to a new time."""
         # Rebuild the now-after-zero constraint instead of strengthening it in place.
         self.cz.add_constraint(self.now, ('all', 'now_after_zero'), min_gap=new_time, max_gap=np.inf)
-        self.refresh_saved_flexibility_after_now_update()
 
 
     def refresh_saved_flexibility_after_now_update(self):
@@ -63,22 +72,29 @@ class TDSManager:
 
     def _iter_countable_tasks(self):
         """
-        Yield (resource, task) for every task that counts toward the schedule-wide
-        aggregates below: skips header/footer/downtime bookkeeping tasks, and once
-        'now' exists, only counts tasks still 'scheduled' (executing/completed
-        tasks are no longer live scheduling decisions).
+        Yield every task that counts toward the schedule-wide aggregates below:
+        skips header/footer/downtime bookkeeping tasks, and once 'now' exists,
+        only counts tasks still 'scheduled' (executing/completed/aborted tasks
+        are no longer live scheduling decisions) -- or 'scheduled' plus
+        'unscheduled' when include_unscheduled_in_flexibility is set (full_flex
+        mode), so not-yet-placed tasks also contribute.
+
+        Iterates self.tasks.values() (every registered task) rather than each
+        resource's timeline, since an 'unscheduled' task -- by definition --
+        isn't on any resource's timeline at all and would never be reached
+        that way.
         """
-        for resource in self.resources.values():
-            for task in resource.timeline.tasks:
-                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
-                    continue
-                if self.now is not None and task.status != 'scheduled':
-                    continue
-                yield resource, task
+        allowed_statuses = ('scheduled', 'unscheduled') if self.include_unscheduled_in_flexibility else ('scheduled',)
+        for task in self.tasks.values():
+            if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                continue
+            if self.now is not None and task.status not in allowed_statuses:
+                continue
+            yield task
 
 
     def sum_saved_flexibility(self):
-        return sum(sum(task.flexibility.values()) for _, task in self._iter_countable_tasks())
+        return sum(sum(task.flexibility.values()) for task in self._iter_countable_tasks())
 
 
     def verify_saved_flexibility(self, tol=1e-6):
@@ -98,7 +114,7 @@ class TDSManager:
         dict is fully consistent with a from-scratch recalculation.
         """
         mismatches = []
-        for _, task in self._iter_countable_tasks():
+        for task in self._iter_countable_tasks():
             saved_total = sum(task.flexibility.values())
             live_total = task.get_task_flexibility()
             if abs(saved_total - live_total) <= tol:
@@ -130,6 +146,25 @@ class TDSManager:
         return sorted_tasks
     
 
+    def wipe_all_scheduled_tasks(self, save_flexibility=False):
+        """
+        Remove every currently 'scheduled' (not yet started) task tds-wide from its
+        resource's timeline, leaving executing/completed tasks and downtime blocks
+        untouched. Used by full-schedule-regeneration rescheduling: unlike task_swap's
+        targeted local repair, this clears the entire remaining schedule so it can be
+        rebuilt from scratch after a disruption event.
+        """
+        wiped_tasks = []
+        for resource in self.resources.values():
+            for task in list(resource.timeline.tasks):
+                if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
+                    continue
+                if task.status == 'scheduled':
+                    resource.timeline.remove_task(task, save_flexibility=save_flexibility)
+                    wiped_tasks.append(task)
+        return wiped_tasks
+
+
     def sum_completion_time_diff(self):
         total_diff = 0
         for task in self.tasks.values():
@@ -155,19 +190,19 @@ class TDSManager:
     
 
     def sum_max_slot_flexibility(self):
-        return sum(task.get_max_slot_flexibility() for _, task in self._iter_countable_tasks())
+        return sum(task.get_max_slot_flexibility() for task in self._iter_countable_tasks())
 
 
     def sum_total_flexibility(self):
-        return sum(task.get_task_flexibility() for _, task in self._iter_countable_tasks())
+        return sum(task.get_task_flexibility() for task in self._iter_countable_tasks())
 
 
     def sum_total_slack(self):
-        return sum(task.get_sliding_slack() for _, task in self._iter_countable_tasks())
+        return sum(task.get_sliding_slack() for task in self._iter_countable_tasks())
     
 
     def sum_total_slot(self):
-        return sum(task.get_slot_flexibility() for _, task in self._iter_countable_tasks())
+        return sum(task.get_slot_flexibility() for task in self._iter_countable_tasks())
 
 
     def sum_total_travel(self):
