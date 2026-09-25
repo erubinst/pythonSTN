@@ -29,6 +29,7 @@ class Task:
         self.task_type = task_type
         self.status = "unscheduled"  # can be "unscheduled", "scheduled", "executing", "completed",
         self.flexibility = {} # will be a dict with the resources and their corresponding flexibility values for this task
+        self.flexibility_detail = {} # resource name -> {'sols', 'swapsols', 'source'}, populated alongside flexibility
        
 
     def begin_execution(self):
@@ -79,21 +80,24 @@ class Task:
         if resource is None:
             assigned_resource = self.get_assigned_resource()
             for r in self.capable_resources():
-                self.flexibility[r.name] = self.get_slot_flexibility_for_resource(r)
-                if r is assigned_resource:
-                    self.flexibility[r.name] += self.get_sliding_slack()
+                value, detail = self.get_slot_flexibility_for_resource(r, return_detail=True)
+                self.flexibility_detail[r.name] = detail
+                if r is assigned_resource and self.tds.include_slack_in_flexibility:
+                    value += self.get_sliding_slack() / r.risk_normalized
+                self.flexibility[r.name] = value
         else:
-            self.flexibility[resource.name] = self.get_slot_flexibility_for_resource(resource)
-            if resource is self.get_assigned_resource():
-                self.flexibility[resource.name] += self.get_sliding_slack()
+            value, detail = self.get_slot_flexibility_for_resource(resource, return_detail=True)
+            self.flexibility_detail[resource.name] = detail
+            if resource is self.get_assigned_resource() and self.tds.include_slack_in_flexibility:
+                value += self.get_sliding_slack() / resource.risk_normalized
+            self.flexibility[resource.name] = value
 
 
-    def get_slot_flexibility_for_resource(self, resource):
+    def get_slot_flexibility_for_resource(self, resource, return_detail=False):
         if not resource.has_capability(self.capability):
-            return 0
+            return (0, {'sols': 0, 'swapsols': None, 'source': 'not_capable'}) if return_detail else 0
         current_resource = self.get_assigned_resource()
-        slot_slack = determine_slot_slack_on_resource(self, resource, current_resource)
-        return slot_slack
+        return determine_slot_slack_on_resource(self, resource, current_resource, return_detail=return_detail)
 
     def get_sliding_slack(self):
         # sliding slack - difference between duration and task ub - lb
@@ -117,7 +121,10 @@ class Task:
     def get_task_flexibility(self):
         # sliding slack - difference between duration and task ub - lb
         sliding_slack = self.get_sliding_slack()
-        # slot slack - sum of task1_slack on all alternate slots for this task 
+        resource = self.get_assigned_resource()
+        if resource is not None:
+            sliding_slack = sliding_slack / resource.risk_normalized
+        # slot slack - sum of task1_slack on all alternate slots for this task
         slot_slack = self.get_slot_flexibility()
         total_flexibility = sliding_slack + slot_slack
         return total_flexibility

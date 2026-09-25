@@ -224,21 +224,13 @@ def _check_flexibility(tds, label, enabled):
         print(f"[flexibility check] {label}: OK (saved == live)")
 
 
-def _run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, initial_minimize=None, swap_minimize=None, max_moves=10, verify_flexibility=False, reschedule_mode="task_swap", regen_metric="makespan", cp_time_limit=180):
+def _run_simulation(request_path, travel_path, event_path, initial_heuristic="flexibility", task_swap_heuristic="flexibility", minimize=False, initial_minimize=None, swap_minimize=None, max_moves=10, verify_flexibility=False, reschedule_mode="task_swap", regen_metric="makespan", cp_time_limit=180, on_initial_schedule=None):
     all_dropped_tasks = deque()
 
-    # initial_minimize/swap_minimize let the initial-generation and
-    # task-swap objectives use different optimization directions (e.g.
-    # initial_metric='full_flex' minimize=False paired with
-    # task_swap_metric='makespan' minimize=True) -- needed for "mismatched"
-    # initial/reschedule combinations where a single shared `minimize`
-    # can't be correct for both metrics at once. Each falls back to the
-    # shared `minimize` when not given, so every existing matched-metric
-    # call site is unaffected.
     initial_minimize = initial_minimize if initial_minimize is not None else minimize
     swap_minimize = swap_minimize if swap_minimize is not None else minimize
-    verify_initial = verify_flexibility and initial_heuristic in ("save_flexibility", "full_flex")
-    verify_swap = verify_flexibility and task_swap_heuristic in ("save_flexibility", "full_flex")
+    verify_initial = verify_flexibility and initial_heuristic in ("save_flexibility", "full_flex", "full_flex_swap")
+    verify_swap = verify_flexibility and task_swap_heuristic in ("save_flexibility", "full_flex", "full_flex_swap")
 
     # --- Timing: schedule generation ---
     print(f"Generating initial schedule from request {request_path} using heuristic '{initial_heuristic}' (minimize={initial_minimize}) with {max_moves} max moves...")
@@ -250,8 +242,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
 
     # Tasks that never made it into the initial schedule at all. Tracked
     # separately from all_dropped_tasks (rather than merged in) so the two
-    # sources -- initial-generation shortfall vs. runtime-rescheduling failure
-    # -- can be compared side by side instead of conflated into one number.
+    # sources: initial-generation shortfall vs. execution-rescheduling failure
     initial_unscheduled_tasks = []
     for task in tds.tasks.values():
         if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
@@ -261,11 +252,16 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
             task.status = 'aborted'
             initial_unscheduled_tasks.append(task)
 
+    if on_initial_schedule is not None:
+        on_initial_schedule(tds)
+
     # Initial generation may have set this for initial_heuristic (see
     # run_scheduler); re-set it here for whichever metric actually drives
     # runtime rescheduling, since the two can differ.
     runtime_metric = regen_metric if reschedule_mode == "full_regen" else task_swap_heuristic
-    tds.include_unscheduled_in_flexibility = (runtime_metric == "full_flex")
+    tds.include_unscheduled_in_flexibility = (runtime_metric in ("full_flex", "full_flex_swap", "slots"))
+    tds.include_slack_in_flexibility = (runtime_metric != "slots")
+    tds.include_swapsols = (runtime_metric == "full_flex_swap")
 
     tds.create_now_tp()
     event_df = initialize_events(event_path)
@@ -309,7 +305,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
                     regen_start = time.perf_counter()
                     dropped = regenerate_schedule_for_event(
                         tds, row.to_dict(), regen_metric=regen_metric, minimize=swap_minimize,
-                        save_flexibility=(regen_metric in ("save_flexibility", "full_flex")),
+                        save_flexibility=(regen_metric in ("save_flexibility", "full_flex", "full_flex_swap")),
                     )
                     regen_duration = time.perf_counter() - regen_start
                     reschedule_time_total += regen_duration
@@ -338,7 +334,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
                         all_dropped_tasks.extend(dropped)
             else:
                 for index, row in starting_events.iterrows():
-                    removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic in ("save_flexibility", "full_flex")))
+                    removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic in ("save_flexibility", "full_flex", "full_flex_swap")))
                     if removed_tasks:
                         print(f"Event at {row['start_time']} on {row['resource']} caused the following tasks to be removed from the schedule: {[task.name for task in removed_tasks]}")
                         all_removed_tasks.extend(removed_tasks)

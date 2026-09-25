@@ -55,8 +55,7 @@ class Timeline:
         new_task_end_location = new_task.locations[-1]
         for task in self.tasks:
             # only scheduled tasks can be displaced, so only they're worth reporting as
-            # "overlapping" here — an executing task's conflict is instead caught by the
-            # STN itself when the insertion is attempted, and is never removable regardless
+            # "overlapping" here
             if task.status not in ['scheduled']:
                 continue
             task_start_location = task.locations[0]
@@ -94,7 +93,7 @@ class Timeline:
         Refresh the flexibility[self.resource.name] entry for every scheduled task
         capable of this resource (except exclude_task, which manages its own dict
         separately, e.g. the task just inserted/removed). Also covers 'unscheduled'
-        tasks when tds.include_unscheduled_in_flexibility is set (full_flex mode) --
+        tasks when tds.include_unscheduled_in_flexibility is set (full_flex mode):
         a task not yet on any timeline can still have its available slots on this
         resource change as a result of this resource's timeline being edited.
         """
@@ -178,22 +177,6 @@ class Timeline:
         if generate_undo:
             undo_stack.append((f'restoring {task.name} status to {prior_status}', lambda: setattr(task, 'status', prior_status)))
 
-        # Under plain save_flexibility, this task is no longer counted once
-        # unscheduled, so clearing its dict is correct. Under full_flex it's
-        # still counted, so its dict must stay populated:
-        #   - normal scheduled removal: only THIS (just-vacated) resource's
-        #     entry actually goes stale. determine_slot_slack_on_resource
-        #     always transiently removes the task from its current assignment
-        #     before searching feasible slots on ANY resource, so every other
-        #     resource's cached entry already reflects this task being
-        #     vacated. This resource's own entry was carrying the
-        #     sliding-slack bonus (now gone, since there's no assigned
-        #     resource anymore) and must be refreshed.
-        #   - preemption from executing: update_capable_tasks_flexibility
-        #     skips 'executing' tasks entirely, so NOTHING refreshed this
-        #     task's dict for however long it was executing -- every entry,
-        #     not just this resource's, may be stale, so it needs a full
-        #     recompute across every capable resource.
         current_flexibility_dict = task.flexibility.copy()
         if save_flexibility and self.tds.include_unscheduled_in_flexibility:
             if was_executing:
@@ -380,13 +363,11 @@ class Timeline:
 
     def _scan_candidate_slots(self, new_task, starting_task=None, prior_slot=None):
         """
-        Yield (prior_task, prior_task_idx) for each position on this timeline
-        new_task could possibly be inserted after, in timeline order. Shared scan
-        skeleton behind has_feasible_slot and map_feasible_slots: starts at
+        Shared scan skeleton behind has_feasible_slot and map_feasible_slots: starts at
         starting_task (or the last executed task, or the very first task),
         skips prior_slot (the task's own current slot, when re-searching after a
         tentative removal), and stops once a candidate is past new_task's own
-        latest-start bound — nothing later in the timeline could work either.
+        latest-start bound.
         """
         if starting_task is not None:
             prior_task = starting_task
@@ -425,16 +406,15 @@ class Timeline:
 
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
         results = []
-        # full_flex reuses save_flexibility's caching machinery -- the only
-        # difference is scope (TDSManager.include_unscheduled_in_flexibility),
-        # which sum_saved_flexibility() itself reads.
-        save_flexibility = any(m in metrics for m in ('save_flexibility', 'full_flex'))
+
+        save_flexibility = any(m in metrics for m in ('save_flexibility', 'full_flex', 'full_flex_swap', 'slots'))
 
         for prior_task, prior_task_idx in self._scan_candidate_slots(new_task, starting_task, prior_slot):
             undo_stack = self.try_slot(new_task, prior_task, save_flexibility=save_flexibility, prior_task_idx=prior_task_idx)
             if undo_stack:
                 results.append({
                     'task1_prior_task': prior_task,
+                    'start': np.abs(new_task.start.lb),
                 })
                 # add in all metrics in metrics dict to above dict
                 if 'slack' in metrics:
@@ -447,7 +427,7 @@ class Timeline:
                 if 'makespan' in metrics:
                     results[-1]['makespan'] = self.tds.makespan()
                 if 'slots' in metrics:
-                    results[-1]['slots'] = self.tds.sum_total_slot()
+                    results[-1]['slots'] = self.tds.sum_saved_flexibility()
                 if 'total_slack' in metrics:
                     results[-1]['total_slack'] = self.tds.sum_total_slack()
                 if 'max_slot' in metrics:
@@ -458,6 +438,8 @@ class Timeline:
                     results[-1]['save_flexibility'] = self.tds.sum_saved_flexibility()
                 if 'full_flex' in metrics:
                     results[-1]['full_flex'] = self.tds.sum_saved_flexibility()
+                if 'full_flex_swap' in metrics:
+                    results[-1]['full_flex_swap'] = self.tds.sum_saved_flexibility()
                 execute_undo_functions(undo_stack)
 
         return results

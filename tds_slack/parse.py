@@ -24,6 +24,7 @@ def load_resources_df(resources_dict):
             "resource_name": name.lower(),
             "capabilities": ", ".join(r.get("capabilities", [])),
             'location': r['location'],
+            'risk_weight': r.get('risk_weight', 1.0),
         })
     return pd.DataFrame(rows)
 

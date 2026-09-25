@@ -57,15 +57,38 @@ def make_travel_matrix(locations: list[str], min_t: int = 5, max_t: int = 60) ->
     return matrix
 
 
+DOWNTIME_LOCATION = "DowntimeZone"
+
+
+def add_downtime_location(travel_matrix: dict) -> dict:
+    """
+    Add a location with zero travel time to/from every existing location.
+    Downtime events are placed here so a resource is always considered
+    "already there" -- a downtime's fixed start/end time shouldn't be able
+    to fail purely because of where the resource physically was beforehand.
+    """
+    travel_matrix[DOWNTIME_LOCATION] = {loc: 0 for loc in travel_matrix}
+    travel_matrix[DOWNTIME_LOCATION][DOWNTIME_LOCATION] = 0
+    for loc in travel_matrix:
+        if loc != DOWNTIME_LOCATION:
+            travel_matrix[loc][DOWNTIME_LOCATION] = 0
+    return travel_matrix
+
+
 def make_resources(n_resources: int, locations: list[str],
                    caps_range: tuple[int, int], downtime_prob: float,
-                   horizon: int, capability_overlap: float = 0.8) -> list[dict]:
+                   horizon: int, capability_overlap: float = 0.8,
+                   risk_range: tuple[float, float] = (1.0, 1.0)) -> list[dict]:
     """
     Each resource gets a random number of capabilities in [caps_range[0], caps_range[1]],
     plus its unique presence capability.
 
     capability_overlap controls how much of each resource's capabilities come from
     a shared capability pool (0.0 = no intended overlap, 1.0 = fully shared).
+
+    risk_range: per-resource risk_weight sampled uniformly from this range, used by
+    make_future_downtimes as a relative resource-selection weight. Default (1.0, 1.0)
+    reproduces the old uniform-random selection exactly.
     """
     if not 0.0 <= capability_overlap <= 1.0:
         raise ValueError("capability_overlap must be between 0.0 and 1.0")
@@ -113,6 +136,7 @@ def make_resources(n_resources: int, locations: list[str],
             "location": loc,
             "capabilities": caps,
             "downtimes": downtimes,
+            "risk_weight": random.uniform(*risk_range),
         })
     return resources
 
@@ -211,7 +235,7 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
                           templates: list[dict], locations: list[str],
                          horizon: int, downtime_count: int,
                          downtime_duration: int | None = None,
-                         duration_range: tuple[int, int] = (5, 120)) -> list[dict]:
+                         duration_range: tuple[int, int] = (15, 120)) -> list[dict]:
     """
     Generate future downtimes arbitrarily: a random resource, random duration
     (either fixed via downtime_duration or sampled from duration_range), and a
@@ -233,7 +257,7 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
     while len(future_downtimes) < downtime_count and attempts < max_attempts:
         attempts += 1
 
-        resource = random.choice(resources)
+        resource = random.choices(resources, weights=[r.get("risk_weight", 1.0) for r in resources])[0]
 
         # Duration: explicit value if given, otherwise sampled from duration_range,
         # capped so it can't exceed the horizon.
@@ -267,7 +291,7 @@ def make_future_downtimes(resources: list[dict], orders: list[dict],
             "start_time": start,
             "end_time": end,
             "duration": end - start,
-            "location": resource["location"],
+            "location": DOWNTIME_LOCATION,
         })
 
     return future_downtimes
@@ -288,6 +312,7 @@ def generate_scenario(
     travel_time_range: tuple = (5, 60),
     future_downtime_count: int = 3,
     downtime_duration: int | None = None,
+    risk_range: tuple[float, float] = (1.0, 1.0),
     seed: int | None = None,
 ) -> tuple[dict, dict, list[dict]]:
     """
@@ -298,8 +323,10 @@ def generate_scenario(
 
     locations = make_location_names(n_locations)
     travel_matrix = make_travel_matrix(locations, *travel_time_range)
+    travel_matrix = add_downtime_location(travel_matrix)
     resources = make_resources(n_resources, locations, caps_range,
-                               downtime_prob, horizon, capability_overlap)
+                               downtime_prob, horizon, capability_overlap,
+                               risk_range)
     templates = make_templates(n_tasks, resources, task_duration_range)
     orders = make_orders(
         templates,

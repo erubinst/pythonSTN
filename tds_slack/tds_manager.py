@@ -12,15 +12,25 @@ class TDSManager:
         self.travel_matrix = travel_matrix
         self.now = None  # will be set when simulation starts
         # Set True while the active objective is 'full_flex', so the flexibility
-        # cache (task.flexibility) and its aggregates also cover not-yet-scheduled
-        # tasks, not just ones already on a timeline. False gives today's
-        # save_flexibility behavior (scheduled tasks only). Toggled by the
-        # simulation driver, not by anything in this class.
         self.include_unscheduled_in_flexibility = False
+        # Set False for the 'slots' (RFlex-only) objective 
+        self.include_slack_in_flexibility = True
+        # Set True for the 'full_flex_swap' objective: when a resource has no
+        # directly-open slot for a task (sols == 0), fall back to swapsols (best
+        # slack achievable via a single retraction on that resource). False
+        # (default) reproduces today's full_flex exactly -- sols==0 contributes 0.
+        self.include_swapsols = False
         # Populated by optimizer_scheduler.py's CP-SAT entry points: one
         # (call_kind, cp_model status) tuple per solve, so callers can report
         # whether each one reached proven OPTIMAL or only timed-out FEASIBLE.
         self.cp_solve_log = []
+
+
+    def normalize_risk_weights(self):
+        weights = [r.risk_weight for r in self.resources.values()]
+        mean_weight = sum(weights) / len(weights) if weights else 1.0
+        for r in self.resources.values():
+            r.risk_normalized = r.risk_weight / mean_weight if mean_weight > 0 else 1.0
 
 
     def print_now_edges(self):
@@ -49,13 +59,7 @@ class TDSManager:
 
     def refresh_saved_flexibility_after_now_update(self):
         """
-        Advancing 'now' can invalidate saved flexibility values on any resource,
-        not just ones whose timeline was structurally edited: every slot probe
-        requires start_after_now, so an alternate slot that was counted as
-        available can silently expire as time passes, with no insertion or
-        removal ever touching that resource. Only worth the cost if
-        save_flexibility is actually in use (i.e. some task's dict has been
-        populated) — otherwise this is a no-op.
+        Advancing 'now' can invalidate saved flexibility values on any resource
         """
         if not any(task.flexibility for task in self.tasks.values()):
             return
@@ -72,23 +76,16 @@ class TDSManager:
 
     def _iter_countable_tasks(self):
         """
-        Yield every task that counts toward the schedule-wide aggregates below:
-        skips header/footer/downtime bookkeeping tasks, and once 'now' exists,
-        only counts tasks still 'scheduled' (executing/completed/aborted tasks
-        are no longer live scheduling decisions) -- or 'scheduled' plus
-        'unscheduled' when include_unscheduled_in_flexibility is set (full_flex
-        mode), so not-yet-placed tasks also contribute.
-
-        Iterates self.tasks.values() (every registered task) rather than each
-        resource's timeline, since an 'unscheduled' task -- by definition --
-        isn't on any resource's timeline at all and would never be reached
-        that way.
+        Yield every task counting toward the schedule-wide aggregates below:
+        skips header/footer/downtime tasks, and only counts 'scheduled' tasks,
+        or 'scheduled' plus 'unscheduled' when include_unscheduled_in_flexibility
+        is set (full_flex mode only). Applies during initial generation too.
         """
         allowed_statuses = ('scheduled', 'unscheduled') if self.include_unscheduled_in_flexibility else ('scheduled',)
         for task in self.tasks.values():
             if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                 continue
-            if self.now is not None and task.status not in allowed_statuses:
+            if task.status not in allowed_statuses:
                 continue
             yield task
 
@@ -98,21 +95,6 @@ class TDSManager:
 
 
     def verify_saved_flexibility(self, tol=1e-6):
-        """
-        Compare each task's saved flexibility dict against a full live
-        recomputation (task.get_task_flexibility()). Mirrors the same filtering
-        as sum_saved_flexibility/sum_total_flexibility so the two are directly
-        comparable task-by-task.
-
-        Cheaply checks the aggregate total first; only when that's off does it
-        decompose entry by entry (task.capable_resources()) to find exactly
-        which resource's cached value actually drifted — the resource a task's
-        flexibility total is off on is not necessarily its current assignment.
-
-        Returns a list of (task_name, resource_name, saved_value, live_value)
-        for every drifted (task, resource) entry. An empty list means the saved
-        dict is fully consistent with a from-scratch recalculation.
-        """
         mismatches = []
         for task in self._iter_countable_tasks():
             saved_total = sum(task.flexibility.values())
@@ -150,9 +132,7 @@ class TDSManager:
         """
         Remove every currently 'scheduled' (not yet started) task tds-wide from its
         resource's timeline, leaving executing/completed tasks and downtime blocks
-        untouched. Used by full-schedule-regeneration rescheduling: unlike task_swap's
-        targeted local repair, this clears the entire remaining schedule so it can be
-        rebuilt from scratch after a disruption event.
+        untouched. 
         """
         wiped_tasks = []
         for resource in self.resources.values():
@@ -170,10 +150,7 @@ class TDSManager:
         for task in self.tasks.values():
             if task.name.endswith('_header') or task.name.endswith('_footer') or 'downtime' in task.name:
                 continue
-            if self.now is not None:
-                if task.status in ['scheduled', 'executing']:
-                    total_diff += task.get_completion_time_diff()
-            else:
+            if task.status in ['scheduled', 'executing']:
                 total_diff += task.get_completion_time_diff()
         return total_diff
     
