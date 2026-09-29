@@ -284,7 +284,7 @@ def regenerate_schedule_for_event_cp(tds, row, time_limit_seconds=180, save_flex
     
     'executing' and downtime tasks are left on their resource's timeline
     (never wiped) and enter the CP model as fixed anchors that the freed
-    tasks get placed around -- see optimizer_scheduler.build_and_solve.
+    tasks get placed around.
 
     Returns the list of tasks that could not be placed back onto the schedule.
     """
@@ -350,9 +350,11 @@ def send_events_no_reschedule(tds, events_df, objective_metric="slack"):
 
 def run_scheduler(request, travel_matrix, objective_metric="flexibility", epoch_date=None, minimize=True, metrics=None):
     tds = upload_request(request, travel_matrix, epoch_date)
-    tds.include_unscheduled_in_flexibility = (objective_metric in ("full_flex", "full_flex_swap", "slots"))
+    tds.include_unscheduled_in_flexibility = (objective_metric in ("full_flex", "full_flex_swap", "full_flex_concave", "full_flex_matching", "slots"))
     tds.include_slack_in_flexibility = (objective_metric != "slots")
     tds.include_swapsols = (objective_metric == "full_flex_swap")
+    tds.include_slot_concavity = (objective_metric == "full_flex_concave")
+    tds.include_matching_redundancy = (objective_metric == "full_flex_matching")
 
     # schedule tasks
     for task in tds.sort_tasks_by_flexibility():

@@ -75,13 +75,47 @@ def add_downtime_location(travel_matrix: dict) -> dict:
     return travel_matrix
 
 
+def sample_n_caps_mixture(generalist_mean: float, specialist_mean: float,
+                          std: float, generalist_frac: float,
+                          lo: int, hi: int) -> int:
+    """
+    Draw a single resource's capability count from a two-component Gaussian
+    mixture: with probability `generalist_frac` from Normal(generalist_mean, std),
+    else from Normal(specialist_mean, std). Result is rounded and resampled
+    (rejection sampling) until it falls in [lo, hi], avoiding an artificial
+    pileup exactly at the boundary that plain clipping would create.
+
+    `std` controls how sharply the population splits into two classes vs.
+    blends into a continuum: small std (relative to the mean gap) gives a
+    sharp bimodal generalist/specialist split (e.g. hub-spoke); large std
+    blends the two humps together into something close to a single uniform
+    spread (e.g. the old caps_range sweep). Intermediate std gives a
+    realistic mix of generalists, specialists, and everything in between.
+    """
+    mean = generalist_mean if random.random() < generalist_frac else specialist_mean
+    for _ in range(50):
+        n_caps = round(random.gauss(mean, std))
+        if lo <= n_caps <= hi:
+            return n_caps
+    return max(lo, min(hi, n_caps))
+
+
 def make_resources(n_resources: int, locations: list[str],
                    caps_range: tuple[int, int], downtime_prob: float,
                    horizon: int, capability_overlap: float = 0.8,
-                   risk_range: tuple[float, float] = (1.0, 1.0)) -> list[dict]:
+                   risk_range: tuple[float, float] = (1.0, 1.0),
+                   caps_distribution: str = "uniform",
+                   caps_mixture_params: dict | None = None) -> list[dict]:
     """
-    Each resource gets a random number of capabilities in [caps_range[0], caps_range[1]],
-    plus its unique presence capability.
+    Each resource gets a random number of capabilities, plus its unique
+    presence capability.
+
+    caps_distribution: "uniform" (default) draws each resource's capability
+    count uniformly from [caps_range[0], caps_range[1]] -- the original
+    behavior. "mixture" instead draws from a two-component Gaussian mixture
+    (see sample_n_caps_mixture) parameterized by caps_mixture_params =
+    {"generalist_mean", "specialist_mean", "std", "generalist_frac"}, still
+    clipped to caps_range.
 
     capability_overlap controls how much of each resource's capabilities come from
     a shared capability pool (0.0 = no intended overlap, 1.0 = fully shared).
@@ -92,6 +126,10 @@ def make_resources(n_resources: int, locations: list[str],
     """
     if not 0.0 <= capability_overlap <= 1.0:
         raise ValueError("capability_overlap must be between 0.0 and 1.0")
+    if caps_distribution not in ("uniform", "mixture"):
+        raise ValueError("caps_distribution must be 'uniform' or 'mixture'")
+    if caps_distribution == "mixture" and not caps_mixture_params:
+        raise ValueError("caps_mixture_params is required when caps_distribution='mixture'")
 
     common_pool_size = int(round(len(CAPABILITY_POOL) * capability_overlap))
     common_pool_size = max(0, min(common_pool_size, len(CAPABILITY_POOL)))
@@ -103,7 +141,10 @@ def make_resources(n_resources: int, locations: list[str],
         loc = random.choice(locations)
 
         # Variable number of capabilities per resource
-        n_caps = random.randint(*caps_range)
+        if caps_distribution == "mixture":
+            n_caps = sample_n_caps_mixture(lo=caps_range[0], hi=caps_range[1], **caps_mixture_params)
+        else:
+            n_caps = random.randint(*caps_range)
 
         overlap_count = int(round(n_caps * capability_overlap))
         overlap_count = min(overlap_count, n_caps, len(common_caps))
@@ -312,11 +353,23 @@ def generate_scenario(
     travel_time_range: tuple = (5, 60),
     future_downtime_count: int = 3,
     downtime_duration: int | None = None,
+    downtime_duration_range: tuple[int, int] | None = None,
     risk_range: tuple[float, float] = (1.0, 1.0),
+    caps_distribution: str = "uniform",
+    caps_mixture_params: dict | None = None,
     seed: int | None = None,
 ) -> tuple[dict, dict, list[dict]]:
     """
     Returns (request_json, travel_matrix_json, future_downtimes_json).
+
+    downtime_duration_range: if given (and downtime_duration is None), each
+    downtime's duration is sampled uniformly from this range instead of the
+    make_future_downtimes default of (15, 120) -- e.g. pass a range expressed
+    as a fraction of `horizon` (like (0.10, 1.00)) scaled by the caller to get
+    horizon-relative severity, so downtime length is comparable across
+    scenarios of different horizons/scales.
+
+    caps_distribution / caps_mixture_params: see make_resources.
     """
     if seed is not None:
         random.seed(seed)
@@ -326,7 +379,7 @@ def generate_scenario(
     travel_matrix = add_downtime_location(travel_matrix)
     resources = make_resources(n_resources, locations, caps_range,
                                downtime_prob, horizon, capability_overlap,
-                               risk_range)
+                               risk_range, caps_distribution, caps_mixture_params)
     templates = make_templates(n_tasks, resources, task_duration_range)
     orders = make_orders(
         templates,
@@ -335,8 +388,12 @@ def generate_scenario(
         due_date_slack_range,
         travel_time_range[1],
     )
+    duration_range_kwargs = {}
+    if downtime_duration is None and downtime_duration_range is not None:
+        duration_range_kwargs["duration_range"] = downtime_duration_range
     future_downtimes = make_future_downtimes(resources, orders, templates, locations,
-                                             horizon, future_downtime_count, downtime_duration)
+                                             horizon, future_downtime_count, downtime_duration,
+                                             **duration_range_kwargs)
 
     request = {
         "resourceTypes": resources,

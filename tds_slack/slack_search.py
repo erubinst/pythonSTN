@@ -108,7 +108,8 @@ def _direct_slot_slack_on_resource(task, changed_tl_resource, prior_assignment):
     alternate_slots = search_feasible_slots_on_resource(task, changed_tl_resource, metrics, prior_assignment=prior_assignment)
     slot_slack = 0
     for slot in alternate_slots:
-        slot_slack += slot.get('slack', 0)
+        value = slot.get('slack', 0)
+        slot_slack += value ** 0.5 if task.tds.include_slot_concavity else value
     return slot_slack
 
 
@@ -116,17 +117,9 @@ def determine_swap_slot_slack_on_resource(task, changed_tl_resource, prior_assig
     """
     swapsols(changed_tl_resource, task): the slack achievable for `task` on
     `changed_tl_resource` if that resource gave up some subset of its
-    currently scheduled tasks overlapping `task`'s window. Only meaningful as
-    a fallback when _direct_slot_slack_on_resource is 0 -- otherwise sols
-    already covers it.
+    currently scheduled tasks overlapping `task`'s window. 
 
-    Mirrors task_swap.py's compute_conflict_sets (Algorithm 2) -- enumerate
-    progressively smaller suffixes of the overlapping-task list, retract each
-    candidate set, and keep the ones that unblock task. Among those, pick the
-    same candidate set task_swap itself would pick (via _score_conflict_set,
-    the identical retraction heuristic used at repair time), not whichever
-    set happens to maximize this task's own slack -- the credit given here
-    should match what actually happens when task_swap later runs for real.
+    Mirrors task_swap.py's compute_conflict_sets (Algorithm 2)
     """
     from tds_slack.task_swap import _score_conflict_set  # local import: task_swap.py imports this module
 
@@ -151,7 +144,16 @@ def determine_swap_slot_slack_on_resource(task, changed_tl_resource, prior_assig
             undo_stack.extend(changed_tl_resource.timeline.remove_task(t, generate_undo=True))
         slack = _direct_slot_slack_on_resource(task, changed_tl_resource, prior_assignment)
         if slack > 0:
-            score = _score_conflict_set(candidate_set, 'full_flex_swap')
+            # score candidates by their own regular flexibility only (sols,
+            # immediate alternatives)
+            # disable include_swapsols for this scoring so it can't recurse into another swapsols search per
+            # candidate task.
+            prev_include_swapsols = task.tds.include_swapsols
+            task.tds.include_swapsols = False
+            try:
+                score = _score_conflict_set(candidate_set, 'full_flex_swap')
+            finally:
+                task.tds.include_swapsols = prev_include_swapsols
             valid_sets.append((score, slack))
         execute_undo_functions(undo_stack)
 
@@ -213,10 +215,56 @@ def determine_slot_slack_on_resource(task, changed_tl_resource, resource, return
 
 
 
+def _try_augment(u, adjacency, match_right, visited):
+    """One augmenting-path attempt for Kuhn's algorithm, starting from left-node u."""
+    for v in adjacency[u]:
+        if v in visited:
+            continue
+        visited.add(v)
+        if v not in match_right or _try_augment(match_right[v], adjacency, match_right, visited):
+            match_right[v] = u
+            return True
+    return False
+
+
+def _max_bipartite_matching(adjacency):
+    """Standard Kuhn's-algorithm augmenting-path matching. adjacency: dict
+    mapping each left-node to an iterable of right-nodes it can match to.
+    Returns the size of a maximum matching."""
+    match_right = {}
+    matched = 0
+    for u in adjacency:
+        if _try_augment(u, adjacency, match_right, set()):
+            matched += 1
+    return matched
+
+
+def resource_matching_redundancy(resource):
+    at_risk_tasks = [
+        t for t in resource.timeline.tasks
+        if not t.name.endswith('_header') and not t.name.endswith('_footer')
+        and 'downtime' not in t.name and t.status == 'scheduled'
+    ]
+    if not at_risk_tasks:
+        return 0
+
+    adjacency = {}
+    for t in at_risk_tasks:
+        alternates = []
+        for r in t.capable_resources():
+            if r is resource:
+                continue
+            if r.timeline.has_feasible_slot(t):
+                alternates.append(r)
+        adjacency[t] = alternates
+
+    return _max_bipartite_matching(adjacency)
+
+
 def determine_slot_slack(tds, task, resource):
     """
     Determine the slot slack for a given task on a specific resource.
-    
+
     Args:
         tds: TDS manager
         task: Task to evaluate
@@ -225,7 +273,10 @@ def determine_slot_slack(tds, task, resource):
     Returns:
         Slot slack value (int)
     """
-    metrics = ["slack"] # NEVER call with flexibility as it will cause loop 
+    if tds.include_matching_redundancy and resource is not None:
+        return resource_matching_redundancy(resource) / resource.risk_normalized
+
+    metrics = ["slack"] # NEVER call with flexibility as it will cause loop
     # unassign the task from its current resource timeline to evaluate potential slack and save undo info
     if resource:
         task_idx = resource.timeline.tasks.index(task)
@@ -242,7 +293,9 @@ def determine_slot_slack(tds, task, resource):
     resources_with_direct_slot = set()
     for slot in alternate_slots:
         # print(f"Slot slack for task {task.name} on resource {slot['resource'].name} with prior task {slot['task1_prior_task'].name if slot['task1_prior_task'] else 'None'}: {slot.get('task1_slack', 0)}")
-        slot_slack += slot.get('slack', 0) / slot['resource'].risk_normalized
+        value = slot.get('slack', 0)
+        value = value ** 0.5 if task.tds.include_slot_concavity else value
+        slot_slack += value / slot['resource'].risk_normalized
         resources_with_direct_slot.add(slot['resource'])
 
     # swapsols fallback: for any capable resource with no directly-open slot,
@@ -316,13 +369,8 @@ def schedule_task(tds, task, objective_metric, minimize=True, other_metrics = No
     feasible_slots = search_feasible_slots(tds, task, metrics)
     if not feasible_slots:
         return False
-    
-    # Sort slots by the objective metric (e.g., slack, travel, flexibility).
-    # full_flex additionally breaks ties by preferring the earlier start time:
-    # it has no built-in preference for early vs. late placement, so absent
-    # this it can drift a task later within its window at no cost to its own
-    # score, which increases how long the task stays at risk of a disruption.
-    if objective_metric in ('full_flex', 'full_flex_swap'):
+
+    if objective_metric in ('full_flex', 'full_flex_swap', 'full_flex_concave', 'full_flex_matching'):
         feasible_slots.sort(key=lambda x: (-x.get(objective_metric, float('-inf')), x.get('start', float('inf'))))
     else:
         feasible_slots.sort(key=lambda x: x.get(f'{objective_metric}', float('inf')), reverse=not minimize)
@@ -330,7 +378,7 @@ def schedule_task(tds, task, objective_metric, minimize=True, other_metrics = No
     best_resource = best_slot['resource']
 
     # Schedule the task on the best resource
-    if objective_metric in ('save_flexibility', 'full_flex', 'full_flex_swap', 'slots'):
+    if objective_metric in ('save_flexibility', 'full_flex', 'full_flex_swap', 'full_flex_concave', 'full_flex_matching', 'slots'):
         best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True, save_flexibility=True)
     else:
         best_resource.insert_task_to_timeline(task, task.capability, prev_task=best_slot['task1_prior_task'], generate_travel=True)

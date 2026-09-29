@@ -15,14 +15,15 @@ class TDSManager:
         self.include_unscheduled_in_flexibility = False
         # Set False for the 'slots' (RFlex-only) objective 
         self.include_slack_in_flexibility = True
-        # Set True for the 'full_flex_swap' objective: when a resource has no
-        # directly-open slot for a task (sols == 0), fall back to swapsols (best
-        # slack achievable via a single retraction on that resource). False
-        # (default) reproduces today's full_flex exactly -- sols==0 contributes 0.
+        # Set True for the 'full_flex_swap' objective: 
         self.include_swapsols = False
-        # Populated by optimizer_scheduler.py's CP-SAT entry points: one
-        # (call_kind, cp_model status) tuple per solve, so callers can report
-        # whether each one reached proven OPTIMAL or only timed-out FEASIBLE.
+        # Set True for the 'full_flex_concave' objective: apply a concave
+        # (sqrt) transform to each individual slot's slack before summing
+        self.include_slot_concavity = False
+        # Set True for 'full_flex_matching': repair-time retraction scoring
+        # uses a resource-level max-matching count instead of summed RFlex,
+        # so shared backup capacity can't be double-counted across tasks.
+        self.include_matching_redundancy = False
         self.cp_solve_log = []
 
 

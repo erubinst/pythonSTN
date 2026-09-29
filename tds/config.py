@@ -1,6 +1,6 @@
-REQUEST_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/p5w8_pb_scenario/request.json'
-INITIAL_SCHEDULE_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/p5w8_pb_scenario/initial_schedule.json'
-TRAVEL_MATRIX_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/p5w8_pb_scenario/travel_matrix.json'
+REQUEST_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/real_week/request.json'
+INITIAL_SCHEDULE_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/real_week/initial_schedule.json'
+TRAVEL_MATRIX_PATH = '/Users/erubinst/ICLL/pythonSTN/tds/real_week/travel_matrix.json'
 EPOCH_DATE = "2025-05-20T00:00"
 GLOBAL_START = "2025-05-20T00:00"
 GLOBAL_END = "2025-05-27T00:00"

@@ -92,10 +92,7 @@ class Timeline:
         """
         Refresh the flexibility[self.resource.name] entry for every scheduled task
         capable of this resource (except exclude_task, which manages its own dict
-        separately, e.g. the task just inserted/removed). Also covers 'unscheduled'
-        tasks when tds.include_unscheduled_in_flexibility is set (full_flex mode):
-        a task not yet on any timeline can still have its available slots on this
-        resource change as a result of this resource's timeline being edited.
+        separately, e.g. the task just inserted/removed). 
         """
         allowed_statuses = ("scheduled", "unscheduled") if self.tds.include_unscheduled_in_flexibility else ("scheduled",)
         for t in self.tds.tasks.values():
@@ -407,7 +404,7 @@ class Timeline:
     def map_feasible_slots(self, new_task, metrics, starting_task=None, prior_slot=None):
         results = []
 
-        save_flexibility = any(m in metrics for m in ('save_flexibility', 'full_flex', 'full_flex_swap', 'slots'))
+        save_flexibility = any(m in metrics for m in ('save_flexibility', 'full_flex', 'full_flex_swap', 'full_flex_concave', 'full_flex_matching', 'slots'))
 
         for prior_task, prior_task_idx in self._scan_candidate_slots(new_task, starting_task, prior_slot):
             undo_stack = self.try_slot(new_task, prior_task, save_flexibility=save_flexibility, prior_task_idx=prior_task_idx)
@@ -440,6 +437,10 @@ class Timeline:
                     results[-1]['full_flex'] = self.tds.sum_saved_flexibility()
                 if 'full_flex_swap' in metrics:
                     results[-1]['full_flex_swap'] = self.tds.sum_saved_flexibility()
+                if 'full_flex_concave' in metrics:
+                    results[-1]['full_flex_concave'] = self.tds.sum_saved_flexibility()
+                if 'full_flex_matching' in metrics:
+                    results[-1]['full_flex_matching'] = self.tds.sum_saved_flexibility()
                 execute_undo_functions(undo_stack)
 
         return results

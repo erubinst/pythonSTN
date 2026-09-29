@@ -116,6 +116,7 @@ def build_and_solve(tds, removed_tasks=None, time_limit_seconds=60, num_workers=
             candidates_by_resource[resource.name].append((task, start, end, None))
 
     skipped_infeasible = []
+    slack_by_task = {}
     for task in free_tasks:
         release = max(int(round(task.get_release_time())), now)
         due = int(round(task.get_due_date()))
@@ -125,6 +126,7 @@ def build_and_solve(tds, removed_tasks=None, time_limit_seconds=60, num_workers=
             # to due-minus-duration would be an empty/invalid domain.
             skipped_infeasible.append(task.name)
             continue
+        slack_by_task[task.name] = due - release - duration
 
         capable = [r for r in tds.resources.values() if r.has_capability(task.capability)]
         for resource in capable:
@@ -145,7 +147,20 @@ def build_and_solve(tds, removed_tasks=None, time_limit_seconds=60, num_workers=
     for resource in tds.resources.values():
         _add_resource_circuit(model, tds, resource, candidates_by_resource[resource.name])
 
-    model.maximize(sum(pv for plist in presence_vars_by_task.values() for pv in plist))
+    # Lexicographic tie-break: maximize count first (dominant term), and
+    # among count-tied solutions prefer to place tighter-due-date-slack
+    # tasks over looser ones -- the same bias the greedy heuristics get for
+    # free from sorting by starting flexibility before inserting.
+    max_slack = max(slack_by_task.values(), default=0)
+    priority_weight = {name: max_slack - slack + 1 for name, slack in slack_by_task.items()}
+    big_m = sum(priority_weight.values()) + 1
+    count_term = sum(pv for plist in presence_vars_by_task.values() for pv in plist)
+    priority_term = sum(
+        priority_weight[task.name] * pv
+        for task in free_tasks if task.name in priority_weight
+        for pv in presence_vars_by_task[task.name]
+    )
+    model.maximize(big_m * count_term + priority_term)
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = time_limit_seconds

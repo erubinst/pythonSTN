@@ -229,8 +229,8 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
 
     initial_minimize = initial_minimize if initial_minimize is not None else minimize
     swap_minimize = swap_minimize if swap_minimize is not None else minimize
-    verify_initial = verify_flexibility and initial_heuristic in ("save_flexibility", "full_flex", "full_flex_swap")
-    verify_swap = verify_flexibility and task_swap_heuristic in ("save_flexibility", "full_flex", "full_flex_swap")
+    verify_initial = verify_flexibility and initial_heuristic in ("save_flexibility", "full_flex", "full_flex_swap", "full_flex_concave")
+    verify_swap = verify_flexibility and task_swap_heuristic in ("save_flexibility", "full_flex", "full_flex_swap", "full_flex_concave")
 
     # --- Timing: schedule generation ---
     print(f"Generating initial schedule from request {request_path} using heuristic '{initial_heuristic}' (minimize={initial_minimize}) with {max_moves} max moves...")
@@ -259,9 +259,11 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
     # run_scheduler); re-set it here for whichever metric actually drives
     # runtime rescheduling, since the two can differ.
     runtime_metric = regen_metric if reschedule_mode == "full_regen" else task_swap_heuristic
-    tds.include_unscheduled_in_flexibility = (runtime_metric in ("full_flex", "full_flex_swap", "slots"))
+    tds.include_unscheduled_in_flexibility = (runtime_metric in ("full_flex", "full_flex_swap", "full_flex_concave", "full_flex_matching", "slots"))
     tds.include_slack_in_flexibility = (runtime_metric != "slots")
     tds.include_swapsols = (runtime_metric == "full_flex_swap")
+    tds.include_slot_concavity = (runtime_metric == "full_flex_concave")
+    tds.include_matching_redundancy = (runtime_metric == "full_flex_matching")
 
     tds.create_now_tp()
     event_df = initialize_events(event_path)
@@ -305,7 +307,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
                     regen_start = time.perf_counter()
                     dropped = regenerate_schedule_for_event(
                         tds, row.to_dict(), regen_metric=regen_metric, minimize=swap_minimize,
-                        save_flexibility=(regen_metric in ("save_flexibility", "full_flex", "full_flex_swap")),
+                        save_flexibility=(regen_metric in ("save_flexibility", "full_flex", "full_flex_swap", "full_flex_concave")),
                     )
                     regen_duration = time.perf_counter() - regen_start
                     reschedule_time_total += regen_duration
@@ -334,7 +336,7 @@ def _run_simulation(request_path, travel_path, event_path, initial_heuristic="fl
                         all_dropped_tasks.extend(dropped)
             else:
                 for index, row in starting_events.iterrows():
-                    removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic in ("save_flexibility", "full_flex", "full_flex_swap")))
+                    removed_tasks = send_event(tds, row.to_dict(), save_flexibility=(task_swap_heuristic in ("save_flexibility", "full_flex", "full_flex_swap", "full_flex_concave")))
                     if removed_tasks:
                         print(f"Event at {row['start_time']} on {row['resource']} caused the following tasks to be removed from the schedule: {[task.name for task in removed_tasks]}")
                         all_removed_tasks.extend(removed_tasks)
@@ -589,9 +591,7 @@ def _normalize_combination(combination):
     "makespan") in place of task_swap_metric.
 
     Also accepts an opt-in "cp_time_limit" (default None, meaning "use the
-    caller's own default") -- only meaningful when initial_metric is
-    "cp_optimal", the CP-SAT time budget (seconds) for generating that
-    scenario's initial schedule.
+    caller's own default") 
 
     Returns (initial_metric, task_swap_metric, max_moves, minimize,
     reschedule_mode, regen_metric, cp_time_limit, initial_minimize,
@@ -646,12 +646,8 @@ def run_profile_across_combinations(
     generate_representative_set.py, e.g. .../slack_scenarios/high_downtime_pressure)
     once per (metric, max_moves) combination, and write out two CSVs:
 
-      1. A summary CSV with one row per combination (profile-level totals --
-         same as before).
-      2. A detail CSV with one row per (scenario, combination) -- i.e. the
-         per-scenario results are kept rather than collapsed, so the same
-         scenario can be compared across combinations (paired comparisons,
-         win rates, correlating drop counts with scenario parameters, etc).
+      1. A summary CSV with one row per combination (profile-level totals
+      2. A detail CSV with one row per (scenario, combination).
 
     Args:
         profile_path: path to a single profile's scenario folder. Each
